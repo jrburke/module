@@ -1,5 +1,5 @@
 /*jshint evil: true */
-/*global setTimeout, process, setImmediate */
+/*global setTimeout, process, setImmediate, XMLHttpRequest */
 var system, ModuleLoader;
 (function() {
   'use strict';
@@ -220,7 +220,8 @@ var system, ModuleLoader;
   }());
   //END prim
 
-  var Promise = prim;
+  var Promise = prim,
+      aslice = Array.prototype.slice;
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'],
       sysDefineRegExp = /system\s*\.\s*define\s*\(/;
@@ -228,6 +229,34 @@ var system, ModuleLoader;
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
       return hasOwn.call(obj, prop);
+  }
+
+  function slice(arrayLike) {
+    return aslice.call(arrayLike, 0);
+  }
+
+  function fetchText(address) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+
+      xhr.open('GET', address, true);
+      xhr.onreadystatechange = function(evt) {
+        var status, err;
+        if (xhr.readyState === 4) {
+          status = xhr.status;
+          if (status > 399 && status < 600) {
+            //An http 4xx or 5xx error. Signal an error.
+            err = new Error(address + ' HTTP status: ' + status);
+            err.xhr = xhr;
+            reject(err);
+          } else {
+            resolve(xhr.responseText);
+          }
+        }
+      };
+      xhr.responseType = 'text';
+      xhr.send(null);
+    });
   }
 
   ModuleLoader = function ModuleLoader(options) {
@@ -284,7 +313,8 @@ var system, ModuleLoader;
             // For instance, detect for system.get use outside
             // of a system.define, and if so, then wrap it.
             if (!sysDefineRegExp.test(source)) {
-            source = 'system.define(\'' + normalizedName + '\', function(system) {\n' +
+            source = 'system.define(\'' + normalizedName +
+                     '\', function(system) {\n' +
                      source +
                      '\n});';
             }
@@ -346,36 +376,53 @@ var system, ModuleLoader;
   };
 
   ModuleLoader.prototype = {
-    // START module lifecycle events
-    normalize: function(name, refererName, referAddress) {
+    _normIfReferer: function(name) {
+      var normalized = this._refererName ?
+                       this.normalize(name, this._refererName) :
+                       name;
 
-      // return name
+      if (typeof normalized !== 'string') {
+        throw new Error('name cannot be normalized synchronously: ' + name);
+      }
+
+      return normalized;
+    },
+
+    // START module lifecycle events
+    normalize: function(name, refererName, refererAddress) {
+      return name;
     },
 
     locate: function(load) {
       // load: name, metadata
 
-      // return address
+      return load.name + '.js';
     },
 
     fetch: function(load) {
       // load: name, metadata, address
 
-      // returns module source
+      return fetchText(load.address);
     },
 
     translate: function(load) {
       //load: name, metadata, address, source
 
-      // return source or maybe just load object
-
+      return load.source;
     },
 
     // END module lifecycle events
 
     // START declarative API
     get: function(name) {
+      var normalizedName = this._normIfReferer(name);
 
+      if (this._hasNormalized(normalizedName)) {
+        return this._modules[normalizedName].exports;
+      }
+
+      throw new Error('module with name "' +
+                      normalizedName + '" does not have an exports');
     },
 
     set: function(value) {
@@ -387,20 +434,54 @@ var system, ModuleLoader;
 
     },
 
+    // Variadic:
+    // Sytem.import('a', 'b', 'c', function (a, b, c){}, function(err){});
     import: function () {
-      //names, fn
+      var callback, errback,
+          args = slice(arguments);
+
+      if (typeof args[args.length - 1] === 'function') {
+        callback = args.pop();
+      }
+      if (typeof args[args.length - 1] === 'function') {
+        errback = callback;
+        callback = args.pop();
+      }
+
+      var p = prim.all(args.map(function(name) {
+        return this._enable(this._normIfReferer(name));
+      }.bind(this)))
+      .then(function(exportArray) {
+        callback.apply(null, exportArray);
+      });
+
+      if (errback) {
+        p.catch(errback);
+      }
+
+      return p;
     },
 
     eval: function(sourceText) {
-
+      return eval(sourceText);
     },
 
-    has: function (name) {
+    has: function(name) {
+      return this._hasNormalized(this._normIfReferer(name));
+    },
 
+    _hasNormalized: function(normalizedName) {
+      return hasProp(this._modules, normalizedName) &&
+             hasProp(this._modules[normalizedName], 'value');
     },
 
     delete: function(name) {
-
+      var normalizedName = this._normIfReferer(name);
+      if (this._hasNormalized(normalizedName)) {
+        delete this._modules[normalizedName];
+      } else {
+        throw new Error('loader does not have module name: ' + normalizedName);
+      }
     },
 
     entries: function() {
