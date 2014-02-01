@@ -329,6 +329,15 @@ var system, ModuleLoader;
       return (instance._fetches[address] = fetch);
     }
 
+    this._getCreateLoad = function(normalizedName) {
+      var load = hasProp(this._loads, normalizedName) &&
+                 this._loads[normalizedName];
+      if (!load) {
+        load = createLoad(normalizedName);
+      }
+      return load;
+    };
+
     this._getFetch = function(address) {
       if (hasProp(this._fetches, address)) {
         return this._fetches[address];
@@ -428,15 +437,25 @@ var system, ModuleLoader;
     set: function(value) {
 
     },
-
     // END declarative API
-    define: function(name, deps, fn) {
 
+    define: function(name, fn) {
+      if (typeof name !== 'string') {
+        fn = name;
+        this._parent.define(this._refererName, fn);
+        return;
+      }
+
+      var load = this._getCreateLoad(name);
+      load.factory = fn;
+      if (load._enabled) {
+        this._enable(name);
+      }
     },
 
     // Variadic:
-    // Sytem.import('a', 'b', 'c', function (a, b, c){}, function(err){});
-    import: function () {
+    // Sytem.load('a', 'b', 'c', function (a, b, c){}, function(err){});
+    load: function () {
       var callback, errback,
           args = slice(arguments);
 
