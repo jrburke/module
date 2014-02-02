@@ -259,14 +259,13 @@ var system, ModuleLoader;
 
   var commentRegExp = /(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/mg;
   var systemGetRegExp =
-                     /[^.]\s*System\s*\.\s*get\s*\(\s*["']([^'"\s]+)["']\s*\)/g;
+                     /[^.]\s*system\s*\.\s*get\s*\(\s*["']([^'"\s]+)["']\s*\)/g;
   function findDependencies(fnText) {
     // TODO: allow for minified content to work, so need to look if
     // `function(something) {` is used at start of string, and if
     // something is not System, then make custom regexp.
     var deps = [];
     fnText
-      .toString()
       .replace(commentRegExp, '')
       .replace(systemGetRegExp, function (match, dep) {
           deps.push(dep);
@@ -533,6 +532,8 @@ var system, ModuleLoader;
 
       if (this._hasNormalized(normalizedName)) {
         return this._modules[normalizedName].exports;
+      } else if (this._parent) {
+        return this._parent.get(normalizedName);
       }
 
       throw new Error('module with name "' +
