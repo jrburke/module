@@ -1,5 +1,3 @@
-/*jshint evil: true */
-/*global setTimeout, process, setImmediate, XMLHttpRequest */
 var system, ModuleLoader;
 (function() {
   'use strict';
@@ -259,7 +257,26 @@ var system, ModuleLoader;
     });
   }
 
+  var commentRegExp = /(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/mg;
+  var systemGetRegExp =
+                     /[^.]\s*System\s*\.\s*get\s*\(\s*["']([^'"\s]+)["']\s*\)/g;
+  function findDependencies(fnText) {
+    // TODO: allow for minified content to work, so need to look if
+    // `function(something) {` is used at start of string, and if
+    // something is not System, then make custom regexp.
+    var deps = [];
+    fnText
+      .toString()
+      .replace(commentRegExp, '')
+      .replace(systemGetRegExp, function (match, dep) {
+          deps.push(dep);
+      });
+    return deps;
+  }
+
   ModuleLoader = function ModuleLoader(options) {
+    options = options || {};
+
     if (options.createHooks) {
       var hooks = options.createHooks(this);
       hookNames.forEach(function(hookName) {
@@ -268,21 +285,31 @@ var system, ModuleLoader;
     }
 
     this._parent = options.parent;
-    this._refererName = options._refererName;
+    this._refererName = options.refererName;
     this._modules = {};
     this._loads = {};
     this._fetches = {};
 
     var instance = this;
 
-    function createLoad(normalizedName) {
+    function createLoad(normalizedName, parentLoad) {
+
+
+//TODO parentLoad
+
       var load = {
         name: normalizedName,
         metadata: {},
         address: undefined,
         source: undefined,
         whenFulfilled: new Promise(function(resolve, reject) {
-          this.resolve = resolve;
+          this._moduleResolve = resolve;
+          this._fetchResolve = function() {
+            this._fulfilled = true;
+            if (this._enabled) {
+              instance._enable(this.name);
+            }
+          }.bind(this);
           this.reject = reject;
         }.bind(load))
       };
@@ -290,15 +317,12 @@ var system, ModuleLoader;
       return (instance._loads[normalizedName] = load);
     }
 
+
+
     function createFetch(normalizedName, address, fetched) {
       var fetch = {
         onAvailable: function(normalizedName, load) {
-          result
-            .then(function() {
-              return instance._enable(normalizedName);
-            })
-            .then(load.resolve)
-            .catch(load.reject);
+          result.then(load._fetchResolve, load.reject);
         }
       };
 
@@ -329,13 +353,32 @@ var system, ModuleLoader;
       return (instance._fetches[address] = fetch);
     }
 
-    this._getCreateLoad = function(normalizedName) {
+    this._getCreateLocalLoad = function(normalizedName) {
       var load = hasProp(this._loads, normalizedName) &&
                  this._loads[normalizedName];
       if (!load) {
         load = createLoad(normalizedName);
       }
       return load;
+    };
+
+    this._getCreateParentLoad = function(name) {
+      var load;
+      if (hasProp(this._loads, name)) {
+        load = this._loads[name];
+      } else if (this._parent) {
+        // Store a local load for it, now that one module
+        // in this instance is bound to it, all should.
+        // This also ensures a local _modules entry later
+        // for all modules in this loader instance
+        load = this._parent._getCreateParentLoad(name);
+        if (load) {
+          load = createLoad(name, load);
+        }
+      }
+      if (!load) {
+        load = createLoad(name);
+      }
     };
 
     this._getFetch = function(address) {
@@ -346,11 +389,65 @@ var system, ModuleLoader;
       }
     };
 
-
     this._enable = function(name) {
       // TODO look for waiting to be defined name in this loader,
       // but also look in parent loader defines.
       //return a promise that gives back the final module value.
+      var load = this._loads[name];
+      load._enabled = true;
+      if (!load._fulfilled) {
+        return;
+      }
+
+      // Parse for dependencies in the factory,
+      // TODO: BUT ALSO any System.define calls and seed the loads for
+      // that system instance. WAIT A MINUTE: this is that system
+      // instance?
+      // TODO: make this fancy AST parsing, like r.js does.
+      load.deps = findDependencies(load._factory.toString()).map(function(dep) {
+        return this.normalize(dep, this._refererName);
+      }.bind(this));
+
+      var callFactory = function() {
+        // create system var and call factory
+        // TODO: is this the right thing to create?
+        // What about custom hooks, they should be passed down?
+        var system = new ModuleLoader({
+          parent: this,
+          refererName: load.name
+        });
+
+        try {
+          load.factory(system);
+        } catch(e) {
+          return load.reject(e);
+        }
+
+        // Get final module value
+        var exports = system._exports;
+
+        this._modules[load.name] = {
+          exports: exports
+        };
+
+        // Set _modules object, to include .exports
+        // resolve the final promise on the load
+        load._moduleResolve(exports);
+
+        // TODO: clean up the load, remove it so it can be garbage collected,
+        // by calling then on the whenFulfilled thing. Is this safe to do
+        // though? promise microtasks and the load reference that is used
+        // across async calls in _pipeline might make it a bad idea.
+      }.bind(this);
+
+      // load dependencies
+      if (load.deps.length) {
+        Promise.all(load.deps.map(function(dep) {
+          return this._pipeline(dep);
+        }.bind(this))).then(callFactory, load.reject);
+      } else {
+        callFactory();
+      }
     };
 
     this._pipeline = function(name) {
@@ -362,9 +459,9 @@ var system, ModuleLoader;
         .then(function(normalizedName) {
           // locate
           if (hasProp(this._modules, normalizedName)) {
-            return this._modules[normalizedName];
+            return this._modules[normalizedName].exports;
           } else if (hasProp(this._loads, normalizedName)) {
-            return this._loads.whenFulfilled;
+            return this._loads[normalizedName].whenFulfilled;
           } else {
             var load = createLoad(normalizedName);
 
@@ -377,6 +474,7 @@ var system, ModuleLoader;
                   fetch = createFetch(address, this.fetch(load));
                 }
                 fetch.onAvailable(normalizedName, load);
+                this._enable(load);
                 return load.whenFulfilled;
               }.bind(this));
           }
@@ -435,7 +533,7 @@ var system, ModuleLoader;
     },
 
     set: function(value) {
-
+      this._exports = value;
     },
     // END declarative API
 
@@ -446,8 +544,8 @@ var system, ModuleLoader;
         return;
       }
 
-      var load = this._getCreateLoad(name);
-      load.factory = fn;
+      var load = this._getCreateLocalLoad(name);
+      load._factory = fn;
       if (load._enabled) {
         this._enable(name);
       }
@@ -468,7 +566,7 @@ var system, ModuleLoader;
       }
 
       var p = prim.all(args.map(function(name) {
-        return this._enable(this._normIfReferer(name));
+        return this._pipeline(this._normIfReferer(name));
       }.bind(this)))
       .then(function(exportArray) {
         callback.apply(null, exportArray);
@@ -491,7 +589,7 @@ var system, ModuleLoader;
 
     _hasNormalized: function(normalizedName) {
       return hasProp(this._modules, normalizedName) &&
-             hasProp(this._modules[normalizedName], 'value');
+             hasProp(this._modules[normalizedName], 'exports');
     },
 
     delete: function(name) {
