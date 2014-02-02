@@ -317,8 +317,6 @@ var system, ModuleLoader;
       return (instance._loads[normalizedName] = load);
     }
 
-
-
     function createFetch(normalizedName, address, fetched) {
       var fetch = {
         onAvailable: function(normalizedName, load) {
@@ -592,7 +590,17 @@ var system, ModuleLoader;
     },
 
     has: function(name) {
-      return this._hasNormalized(this._normIfReferer(name));
+      var normalizedName = this._normIfReferer(name);
+
+      if (this._hasNormalized(normalizedName)) {
+        return true;
+      }
+
+      if (this._parent) {
+        return this._parent.has(normalizedName);
+      }
+
+      return false;
     },
 
     _hasNormalized: function(normalizedName) {
