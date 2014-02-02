@@ -301,18 +301,19 @@ var system, ModuleLoader;
         name: normalizedName,
         metadata: {},
         address: undefined,
-        source: undefined,
-        whenFulfilled: new Promise(function(resolve, reject) {
-          this._moduleResolve = resolve;
-          this._fetchResolve = function() {
-            this._fulfilled = true;
-            if (this._enabled) {
-              instance._enable(this.name);
-            }
-          }.bind(this);
-          this.reject = reject;
-        }.bind(load))
+        source: undefined
       };
+
+      load.whenFulfilled = new Promise(function(resolve, reject) {
+          load._moduleResolve = resolve;
+          load._fetchResolve = function() {
+            load._fulfilled = true;
+            if (load._enabled) {
+              instance._enable(load.name);
+            }
+          };
+          load.reject = reject;
+        });
 
       return (instance._loads[normalizedName] = load);
     }
@@ -328,19 +329,23 @@ var system, ModuleLoader;
 
       var result = new Promise(function(resolve, reject) {
 
+        var load = instance._loads[normalizedName];
+
         Promise.cast(fetched)
           .then(function(source) {
-            return instance.translate(source);
+            load.source = source;
+            return instance.translate(load);
           })
           .then(function(source) {
+            load.source = source;
             // TODO: make the detection fancier here.
             // For instance, detect for system.get use outside
             // of a system.define, and if so, then wrap it.
             if (!sysDefineRegExp.test(source)) {
-            source = 'system.define(\'' + normalizedName +
-                     '\', function(system) {\n' +
-                     source +
-                     '\n});';
+              source = 'system.define(\'' + normalizedName +
+                       '\', function(system) {\n' +
+                       source +
+                       '\n});';
             }
             source += '\r\n//@ sourceURL=' + address;
 
@@ -418,7 +423,7 @@ var system, ModuleLoader;
         });
 
         try {
-          load.factory(system);
+          load._factory(system);
         } catch(e) {
           return load.reject(e);
         }
@@ -465,16 +470,18 @@ var system, ModuleLoader;
           } else {
             var load = createLoad(normalizedName);
 
-            return this.locate(load)
+            return Promise.cast(this.locate(load))
               .then(function(address) {
                 load.address = address;
 
                 var fetch = this._getFetch(address);
                 if (!fetch) {
-                  fetch = createFetch(address, this.fetch(load));
+                  fetch = createFetch(normalizedName,
+                                      address,
+                                      this.fetch(load));
                 }
                 fetch.onAvailable(normalizedName, load);
-                this._enable(load);
+                this._enable(normalizedName);
                 return load.whenFulfilled;
               }.bind(this));
           }

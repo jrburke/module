@@ -48,6 +48,8 @@ level load, but then fix value at that system level to the final resolved value.
 
 * how to do cycles. always transform source to funky gets?
 
+* TODO: need a timeout on loads, since waiting on promises for lifecycle, need to shut down if taking too long.
+
 Notes
 
 * does not implement realm stuff.

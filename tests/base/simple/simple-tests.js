@@ -8,4 +8,7 @@ system.load('a', 'b', function(a, b) {
         }
       ]
     );
+})
+.catch(function (e) {
+  console.error(e);
 });
