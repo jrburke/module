@@ -3,7 +3,7 @@ var system, ModuleLoader;
   'use strict';
 
   var prim;
-  //START prim 0.0.6
+  //START prim 0.0.7
   /**
    * Changes from baseline prim
    * - removed UMD registration
@@ -204,13 +204,17 @@ var system, ModuleLoader;
           }
         }
 
-        ary.forEach(function (item, i) {
-          prim.cast(item).then(function (v) {
-            resolved(i, v);
-          }, function (err) {
-            no(err);
+        if (!ary.length) {
+          yes([]);
+        } else {
+          ary.forEach(function (item, i) {
+            prim.cast(item).then(function (v) {
+              resolved(i, v);
+            }, function (err) {
+              no(err);
+            });
           });
-        });
+        }
       });
     };
 
@@ -264,6 +268,7 @@ var system, ModuleLoader;
     // TODO: allow for minified content to work, so need to look if
     // `function(something) {` is used at start of string, and if
     // something is not System, then make custom regexp.
+    // TODO: make this fancy AST parsing, like r.js does.
     var deps = [];
     fnText
       .replace(commentRegExp, '')
@@ -405,51 +410,58 @@ var system, ModuleLoader;
       // TODO: BUT ALSO any System.define calls and seed the loads for
       // that system instance. WAIT A MINUTE: this is that system
       // instance?
-      // TODO: make this fancy AST parsing, like r.js does.
-      load.deps = findDependencies(load._factory.toString()).map(function(dep) {
-        return this.normalize(dep, this._refererName);
-      }.bind(this));
+      load.deps = [];
+      var allDeps = findDependencies(load._factory.toString());
 
-      var callFactory = function() {
-        // create system var and call factory
-        // TODO: is this the right thing to create?
-        // What about custom hooks, they should be passed down?
-        var system = new ModuleLoader({
-          parent: this,
-          refererName: load.name
+      // Convert to normalized names
+      Promise.all(allDeps.map(function(dep) {
+        return this.normalize(dep, this._refererName);
+      }.bind(this)))
+      .then(function(normalizedDeps) {
+        // Reduce dependencies to a unique set
+        normalizedDeps.forEach(function(normalizedDep) {
+          if (load.deps.indexOf(normalizedDep) === -1) {
+            load.deps.push(normalizedDep);
+          }
         });
 
-        try {
-          load._factory(system);
-        } catch(e) {
-          return load.reject(e);
-        }
-
-        // Get final module value
-        var exports = system._exports;
-
-        this._modules[load.name] = {
-          exports: exports
-        };
-
-        // Set _modules object, to include .exports
-        // resolve the final promise on the load
-        load._moduleResolve(exports);
-
-        // TODO: clean up the load, remove it so it can be garbage collected,
-        // by calling then on the whenFulfilled thing. Is this safe to do
-        // though? promise microtasks and the load reference that is used
-        // across async calls in _pipeline might make it a bad idea.
-      }.bind(this);
-
-      // load dependencies
-      if (load.deps.length) {
+        // load dependencies
         Promise.all(load.deps.map(function(dep) {
           return this._pipeline(dep);
-        }.bind(this))).then(callFactory, load.reject);
-      } else {
-        callFactory();
-      }
+        }.bind(this))).then(function() {
+          // create system var and call factory
+          // TODO: is this the right thing to create?
+          // What about custom hooks, they should be passed down?
+          var system = new ModuleLoader({
+            parent: this,
+            refererName: load.name
+          });
+
+          try {
+            load._factory(system);
+          } catch(e) {
+            return load.reject(e);
+          }
+
+          // Get final module value
+          var exports = system._exports;
+
+          this._modules[load.name] = {
+            exports: exports
+          };
+
+          // Set _modules object, to include .exports
+          // resolve the final promise on the load
+          load._moduleResolve(exports);
+
+          // TODO: clean up the load, remove it so it can be garbage collected,
+          // by calling then on the whenFulfilled thing. Is this safe to do
+          // though? promise microtasks and the load reference that is used
+          // across async calls in _pipeline might make it a bad idea.
+        }.bind(this))
+        .catch(load.reject);
+      }.bind(this))
+      .catch(load.reject);
     };
 
     this._pipeline = function(name) {

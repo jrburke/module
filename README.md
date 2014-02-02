@@ -41,6 +41,11 @@ reference a `.default` property in the import success callback, where in the
 import syntax form it is not necessary.
 * The syntax encourages the desire for lexical modules. This is very hard to
 reconcile with the dynamic parts of ES module loading.
+* This is also evident for the need of a per-module `System` construct, to
+make sure modules loaded via `System.import` are stored in the correct
+module loader instance. Plus, the practical usefulness, as demonstrated in AMD,
+of a module being able to know its module name and address (`module.id` and
+`module.uri` in AMD, originally specified in CommonJS modules).
 * Because of the uncertainty around lexical modules, the bundling API is not
 optimal: passing JS strings to `System.define` looks ugly, and causes
 practical complications around concatenation and minification steps used in
@@ -153,11 +158,48 @@ was already required for ES6, but the `system` proposal expands on it a bit.
 
 But it is important to note that no new HTML changes are needed, and while this
 should not be a primary goal, enough of the module approach could be polyfilled
-to get more people to try it out before it is done.
+sooner to get more people to try it out before it has be considered done.
 
 ## mutable slots
 
-xx
+The current ES proposal relies on a "mutable slot" concept for exports. This
+allows circular dependencies to work well. That concept is reused for `system`,
+and expanded a bit, to first level properties in the module export value.
+
+How I have viewed the mutable slot, in terms of the existing ES module proposal.
+Suppose a module imports paint from a brush module.
+
+```javascript
+import paint from 'brush';
+
+// some time later
+paint();
+```
+
+What I envision happens in the engine when `paint` is referenced: it results in
+a call similar to `(System.get('brush').paint)`.
+
+So mutable exports for the existing ES module proposal could be polyfilled today
+by using an AST parser, like Esprima, to replace all references fo `paint`
+(except for the initial import), with `(System.get('brush').paint)`, then
+evaluate the code.
+
+This view sees a mutable export reference similar to a getter.
+
+For this `system` proposal, this is same mechanism would be used, except using
+a module API with destructuring, instead of syntax:
+
+```javascript
+var { paint } = system.get('brush');
+
+// some time later
+paint();
+```
+
+In a polyfill, this would work by replacing the `paint` reference in the AST
+with `(System.get('brush').paint)`
+
+
 
 ## Differences from `System`
 
