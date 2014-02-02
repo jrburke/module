@@ -197,14 +197,34 @@ paint();
 ```
 
 In a polyfill, this would work by replacing the `paint` reference in the AST
-with `(System.get('brush').paint)`
-
-
+with `(System.get('brush').paint)`.
 
 ## Differences from `System`
 
 No System.import, system.load instead
-createHooks
+createHooks, although nested system loaders, loader plugins make more sense.
+
+## `system` description
+
+The module system is based on parsing for dependencies in a module, loading
+and executing dependencies before executing the current module.
+
+The module API indicates dependencies by using `system.get(String)`. A module
+sets the module export using `system.set(value)`, where `value` is the export
+value. It must be set before the end of the module body execution.
+
+```javascript
+// A module that depends on two other modules
+var { paint } = system.get('brush');
+var pixelate = system.get('pixelate');
+
+system.get({
+  paint: paint,
+  pixelate: pixelate
+});
+```
+
+A module
 
 
 ----
@@ -234,5 +254,5 @@ level load, but then fix value at that system level to the final resolved value.
 
 Notes
 
-* does not implement realm stuff.
 * I prefer `return` to set module export, instead of system.set(), as it more correctly enforces "end of factory function means export is considered set" but right now JS grammar does not consider a top level `return` as valid.
+* It may make sense to have a system.import() for specifying dependencies, and system.get() for just runtime fetching. This would allow system.get() to throw an error a bit sooner than if system.get() that returns a mutable slot might.
