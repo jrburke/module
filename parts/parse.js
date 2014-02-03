@@ -41,7 +41,7 @@ var parse;
       if (object.hasOwnProperty(key)) {
         child = object[key];
         if (typeof child === 'object' && child !== null) {
-          traverse(child, visitor);
+          traverseBroad(child, visitor);
         }
       }
     }
@@ -62,7 +62,7 @@ var parse;
           localModules = [],
           systemName;
 
-      traverse(astRoot, function(node) {
+      traverseBroad(astRoot, function(node) {
         // Minified code could have changed the name of system to something
         // else, so find it. It will be the first function expression.
         if (!systemName && node.type === 'FunctionExpression' &&

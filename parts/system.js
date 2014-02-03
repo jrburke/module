@@ -53,23 +53,6 @@ var system, ModuleLoader;
     });
   }
 
-  var commentRegExp = /(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/mg;
-  var systemGetRegExp =
-                     /[^.]\s*system\s*\.\s*get\s*\(\s*["']([^'"\s]+)["']\s*\)/g;
-  function findDependencies(fnText) {
-    // TODO: allow for minified content to work, so need to look if
-    // `function(something) {` is used at start of string, and if
-    // something is not System, then make custom regexp.
-    // TODO: make this fancy AST parsing, like r.js does.
-    var deps = [];
-    fnText
-      .replace(commentRegExp, '')
-      .replace(systemGetRegExp, function (match, dep) {
-          deps.push(dep);
-      });
-    return deps;
-  }
-
   ModuleLoader = function ModuleLoader(options) {
     options = options || {};
 
@@ -198,15 +181,13 @@ var system, ModuleLoader;
         return;
       }
 
-      // Parse for dependencies in the factory,
-      // TODO: BUT ALSO any System.define calls and seed the loads for
-      // that system instance. WAIT A MINUTE: this is that system
-      // instance?
+      // Parse for dependencies in the factory, and any System.define
+      // calls for local modules.
       load.deps = [];
-      var allDeps = findDependencies(load._factory.toString());
+      var parseResult = parse.fromFactory(load._factory);
 
       // Convert to normalized names
-      Promise.all(allDeps.map(function(dep) {
+      Promise.all(parseResult.deps.map(function(dep) {
         return this.normalize(dep, this._refererName);
       }.bind(this)))
       .then(function(normalizedDeps) {
@@ -226,7 +207,8 @@ var system, ModuleLoader;
           // What about custom hooks, they should be passed down?
           var system = new ModuleLoader({
             parent: this,
-            refererName: load.name
+            refererName: load.name,
+            _knownLocalModules: parseResult.localModules
           });
 
           try {
@@ -288,6 +270,12 @@ var system, ModuleLoader;
           }
         }.bind(this));
     };
+
+    if (options._knownLocalModules) {
+      options._knownLocalModules.forEach(function(localModuleName) {
+        createLoad(localModuleName);
+      });
+    }
   };
 
   ModuleLoader.prototype = {
