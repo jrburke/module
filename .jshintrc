@@ -28,6 +28,6 @@
   "nonstandard": true,
   "worker": true,
   "predef": [
-    "setTimeout", "process", "setImmediate", "XMLHttpRequest"
+    "setTimeout", "process", "setImmediate", "XMLHttpRequest", "prim"
   ]
 }
