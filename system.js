@@ -4188,6 +4188,13 @@ var parse;
     }
   }
 
+  function matchesCallExpression(node, objectName, propertyName) {
+    return node.type === 'CallExpression' && node.callee &&
+           node.callee.type === 'MemberExpression' && node.callee.object &&
+           node.callee.object.name === objectName && node.callee.property &&
+           node.callee.property.name === propertyName;
+  }
+
   parse = {
     traverse: traverse,
     traverseBroad: traverseBroad,
@@ -4195,13 +4202,21 @@ var parse;
     // Parses factory function for system.get() dependencies,
     // as well as system.define IDs that are local to a module.
     fromFactory: function(fn) {
+      return parse.fromBody('(' + fn.toString() + ')');
+    },
+
+    // Parses a possible module body for module API usage:
+    // system.get()
+    // system.define()
+    // system.setFromLocal()
+    fromBody: function (bodyText, systemName) {
       // Convert to string, add parens around it so valid esprima
       // parse form.
-      var text = '(' + fn.toString() + ')',
-          astRoot = esprima.parse(text),
+      var setFromLocal,
+          usesSet = false,
+          astRoot = esprima.parse(bodyText),
           deps = [],
-          localModules = [],
-          systemName;
+          localModules = [];
 
       traverseBroad(astRoot, function(node) {
         // Minified code could have changed the name of system to something
@@ -4212,10 +4227,7 @@ var parse;
         }
 
         // Look for dependencies
-        if (node.type === 'CallExpression' && node.callee &&
-            node.callee.type === 'MemberExpression' && node.callee.object &&
-            node.callee.object.name === systemName && node.callee.property &&
-            node.callee.property.name === 'get') {
+        if (matchesCallExpression(node, systemName, 'get')) {
           var dep = node.arguments[0].value;
           if (deps.indexOf(dep) === -1) {
             deps.push(dep);
@@ -4224,19 +4236,35 @@ var parse;
 
         // Look for local module defines, but only top level,
         // do not inspect inside of them if found.
-        if (node.type === 'CallExpression' && node.callee &&
-            node.callee.type === 'MemberExpression' && node.callee.object &&
-            node.callee.object.name === systemName && node.callee.property &&
-            node.callee.property.name === 'define') {
+        if (matchesCallExpression(node, systemName, 'define')) {
           var localModule = node.arguments[0].value;
           localModules.push(localModule);
           return false;
+        }
+
+        // Look for system.setFromLocal, since it indicates this code is
+        // a module, and needs a module function wrapping.
+        if (matchesCallExpression(node, systemName, 'setFromLocal')) {
+          var setFromLocalValue = node.arguments[0].value;
+          setFromLocal = setFromLocalValue;
+          return false;
+        }
+
+        // Look for system.set, since it indicates this code is
+        // a module, and needs a module function wrapping.
+        if (matchesCallExpression(node, systemName, 'set')) {
+          // uses set, and continue parsing lower, since set
+          // usage could use get inside to construct the export
+          usesSet = true;
         }
       });
 
       return {
         deps: deps,
-        localModules: localModules
+        localModules: localModules,
+        setFromLocal: setFromLocal,
+        // If have deps or a setFromLocal, this is a module body.
+        isModule: !!(deps.length || setFromLocal || usesSet)
       };
     }
   };
@@ -4248,8 +4276,7 @@ var parse;
   var Promise = prim,
       aslice = Array.prototype.slice;
 
-  var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'],
-      sysDefineRegExp = /system\s*\.\s*define\s*\(/;
+  var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
 
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
@@ -4315,10 +4342,18 @@ var parse;
       };
 
       load.whenFulfilled = new Promise(function(resolve, reject) {
-          load._moduleResolve = resolve;
+          load._moduleResolve = function(value) {
+            load._moduleResolved = true;
+            resolve(value);
+          };
           load._fetchResolve = function() {
-            load._fulfilled = true;
-            if (load._enabled) {
+            // Need to call _fulfilled here because loaded thing
+            // may just be a script that does not call system.define()
+            if (!load.parseResult && !load.parseResult.isModule) {
+              load._fulfilled = true;
+            }
+
+            if (load._enableWaiting) {
               instance._enable(load.name);
             }
           };
@@ -4345,11 +4380,14 @@ var parse;
             return instance.translate(load);
           })
           .then(function(source) {
-            load.source = source;
-            // TODO: make the detection fancier here.
-            // For instance, detect for system.get use outside
-            // of a system.define, and if so, then wrap it.
-            if (!sysDefineRegExp.test(source)) {
+
+            var parseResult = parse.fromBody(source, 'system');
+            load.parseResult = parseResult;
+
+            // If it looks like a module body, hten wrap,
+            // in a module body function wrapper. Otherwise,
+            // treat it as a normal non-module script.
+            if (parseResult.isModule) {
               source = 'system.define(\'' + normalizedName +
                        '\', function(system) {\n' +
                        source +
@@ -4407,19 +4445,30 @@ var parse;
       // but also look in parent loader defines.
       //return a promise that gives back the final module value.
       var load = this._loads[name];
-      load._enabled = true;
-      if (!load._fulfilled) {
+      load._enableWaiting = true;
+      if (!load._fulfilled || load._enabled) {
         return;
       }
+      load._enabled = true;
+      load._enableWaiting = false;
 
       // Parse for dependencies in the factory, and any System.define
       // calls for local modules.
-      load.deps = [];
-      var parseResult;
-      try {
-        parseResult = parse.fromFactory(load._factory);
-      } catch (e) {
-        return load.reject(e);
+      var parseResult = load.parseResult;
+
+      if (!parseResult && load._factory) {
+        try {
+          parseResult = parse.fromFactory(load._factory);
+          load.parseResult = parseResult;
+        } catch (e) {
+          return load.reject(e);
+        }
+      }
+
+      // A plain script, no dependencies are detectable,
+      // so just proceed as if none.
+      if (!parseResult) {
+        parseResult = { deps: [] };
       }
 
       // Convert to normalized names
@@ -4427,15 +4476,8 @@ var parse;
         return this.normalize(dep, this._refererName);
       }.bind(this)))
       .then(function(normalizedDeps) {
-        // Reduce dependencies to a unique set
-        normalizedDeps.forEach(function(normalizedDep) {
-          if (load.deps.indexOf(normalizedDep) === -1) {
-            load.deps.push(normalizedDep);
-          }
-        });
-
         // load dependencies
-        Promise.all(load.deps.map(function(dep) {
+        Promise.all(normalizedDeps.map(function(dep) {
           return this._pipeline(dep);
         }.bind(this))).then(function() {
           // create system var and call factory
@@ -4456,14 +4498,18 @@ var parse;
           Promise.cast().then(function () {
             if (hasProp(system, '_exportsFromLocal')) {
               // Need to wait for local define to resolve,
-              // so set a listener for it now
+              // so set a listener for it now.
               var localName = system._exportsFromLocal,
                   load = system._loads[localName];
+
+              // Enable the local module, since needed to set
+              // current module exports
+              system._enable(localName);
 
               return load.whenFulfilled.then(function (value) {
                 // Purposely do not return a value, in case the
                 // module export is a Promise.
-                system._exports = system._modules[localName];
+                system._exports = value.exports;
               });
             }
           }.bind(this))
@@ -4610,7 +4656,9 @@ var parse;
 
       var load = this._getCreateLocalLoad(name);
       load._factory = fn;
-      if (load._enabled) {
+      load._fulfilled = true;
+
+      if (load._enableWaiting) {
         this._enable(name);
       }
     },
