@@ -1,4 +1,3 @@
-
 var system, ModuleLoader;
 (function() {
   'use strict';
@@ -13,6 +12,8 @@ var system, ModuleLoader;
     esprima = exports.esprima;
   });
   // END wrapping for esprima
+
+  // INSERT parse
 
   var Promise = prim,
       aslice = Array.prototype.slice;
@@ -217,21 +218,38 @@ var system, ModuleLoader;
             return load.reject(e);
           }
 
-          // Get final module value
-          var exports = system._exports;
+          Promise.cast().then(function () {
+            if (hasProp(system, '_exportsFromLocal')) {
+              // Need to wait for local define to resolve,
+              // so set a listener for it now
+              var localName = system._exportsFromLocal,
+                  load = system._loads[localName];
 
-          this._modules[load.name] = {
-            exports: exports
-          };
+              return load.whenFulfilled.then(function (value) {
+                // Purposely do not return a value, in case the
+                // module export is a Promise.
+                system._exports = system._modules[localName];
+              });
+            }
+          }.bind(this))
+          .then(function() {
+            // Get final module value
+            var exports = system._exports;
 
-          // Set _modules object, to include .exports
-          // resolve the final promise on the load
-          load._moduleResolve(exports);
+            var moduleDef = this._modules[load.name] = {
+              exports: exports
+            };
 
-          // TODO: clean up the load, remove it so it can be garbage collected,
-          // by calling then on the whenFulfilled thing. Is this safe to do
-          // though? promise microtasks and the load reference that is used
-          // across async calls in _pipeline might make it a bad idea.
+            // Set _modules object, to include .exports
+            // resolve the final promise on the load
+            load._moduleResolve(moduleDef);
+
+            // TODO: clean up the load, remove it so can be garbage collected,
+            // by calling then on the whenFulfilled thing. Is this safe to do
+            // though? promise microtasks and the load reference that is used
+            // across async calls in _pipeline might make it a bad idea.
+          }.bind(this))
+          .catch(load.reject);
         }.bind(this))
         .catch(load.reject);
       }.bind(this))
@@ -247,7 +265,7 @@ var system, ModuleLoader;
         .then(function(normalizedName) {
           // locate
           if (hasProp(this._modules, normalizedName)) {
-            return this._modules[normalizedName].exports;
+            return this._modules[normalizedName];
           } else if (hasProp(this._loads, normalizedName)) {
             return this._loads[normalizedName].whenFulfilled;
           } else {
@@ -331,8 +349,20 @@ var system, ModuleLoader;
     },
 
     set: function(value) {
-      // TODO: throw if this called after the factory has run.
+      if (hasProp(this, '_exportsFromLocal')) {
+        throw new Error('system.setFromLocal() already called');
+      }
+
+      // TODO: throw if called after module is considered "defined"
       this._exports = value;
+    },
+    setFromLocal: function(localName) {
+      if (hasProp(this, '_exports')) {
+        throw new Error('system.set() already called');
+      }
+
+      // TODO: throw if called after module is considered "defined"
+      this._exportsFromLocal = localName;
     },
     // END declarative API
 
@@ -367,7 +397,10 @@ var system, ModuleLoader;
       var p = prim.all(args.map(function(name) {
         return this._pipeline(this._normIfReferer(name));
       }.bind(this)))
-      .then(function(exportArray) {
+      .then(function(moduleDefArray) {
+        var exportArray = moduleDefArray.map(function(def) {
+          return def.exports;
+        });
         callback.apply(null, exportArray);
       });
 

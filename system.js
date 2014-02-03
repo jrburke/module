@@ -1,4 +1,3 @@
-
 var system, ModuleLoader;
 (function() {
   'use strict';
@@ -4141,6 +4140,112 @@ parseStatement: true, parseSourceElement: true */
   });
   // END wrapping for esprima
 
+  /*global esprima */
+var parse;
+(function() {
+  //From an esprima example for traversing its ast.
+  function traverse(object, visitor) {
+    var key, child;
+
+    if (!object) {
+      return;
+    }
+
+    if (visitor.call(null, object) === false) {
+      return false;
+    }
+    for (key in object) {
+      if (object.hasOwnProperty(key)) {
+        child = object[key];
+        if (typeof child === 'object' && child !== null) {
+          if (traverse(child, visitor) === false) {
+            return false;
+          }
+        }
+      }
+    }
+  }
+
+  //Like traverse, but visitor returning false just
+  //stops that subtree analysis, not the rest of tree
+  //visiting.
+  function traverseBroad(object, visitor) {
+    var key, child;
+
+    if (!object) {
+      return;
+    }
+
+    if (visitor.call(null, object) === false) {
+      return false;
+    }
+    for (key in object) {
+      if (object.hasOwnProperty(key)) {
+        child = object[key];
+        if (typeof child === 'object' && child !== null) {
+          traverseBroad(child, visitor);
+        }
+      }
+    }
+  }
+
+  parse = {
+    traverse: traverse,
+    traverseBroad: traverseBroad,
+
+    // Parses factory function for system.get() dependencies,
+    // as well as system.define IDs that are local to a module.
+    fromFactory: function(fn) {
+      // Convert to string, add parens around it so valid esprima
+      // parse form.
+      var text = '(' + fn.toString() + ')',
+          astRoot = esprima.parse(text),
+          deps = [],
+          localModules = [],
+          systemName;
+
+      traverseBroad(astRoot, function(node) {
+        // Minified code could have changed the name of system to something
+        // else, so find it. It will be the first function expression.
+        if (!systemName && node.type === 'FunctionExpression' &&
+            node.params && node.params.length === 1) {
+          systemName = node.params[0].name;
+        }
+
+        // Look for dependencies
+        if (node.type === 'CallExpression' && node.callee &&
+            node.callee.type === 'MemberExpression' && node.callee.object &&
+            node.callee.object.name === systemName && node.callee.property &&
+            node.callee.property.name === 'get') {
+          var dep = node.arguments[0].value;
+          if (deps.indexOf(dep) === -1) {
+            deps.push(dep);
+          }
+        }
+
+        // Look for local module defines, but only top level,
+        // do not inspect inside of them if found.
+        if (node.type === 'CallExpression' && node.callee &&
+            node.callee.type === 'MemberExpression' && node.callee.object &&
+            node.callee.object.name === systemName && node.callee.property &&
+            node.callee.property.name === 'define') {
+          var localModule = node.arguments[0].value;
+          localModules.push(localModule);
+          return false;
+        }
+      });
+
+      return {
+        deps: deps,
+        localModules: localModules
+      };
+    }
+  };
+
+}());
+
+
+
   var Promise = prim,
       aslice = Array.prototype.slice;
 
@@ -4178,23 +4283,6 @@ parseStatement: true, parseSourceElement: true */
       xhr.responseType = 'text';
       xhr.send(null);
     });
-  }
-
-  var commentRegExp = /(\/\*([\s\S]*?)\*\/|([^:]|^)\/\/(.*)$)/mg;
-  var systemGetRegExp =
-                     /[^.]\s*system\s*\.\s*get\s*\(\s*["']([^'"\s]+)["']\s*\)/g;
-  function findDependencies(fnText) {
-    // TODO: allow for minified content to work, so need to look if
-    // `function(something) {` is used at start of string, and if
-    // something is not System, then make custom regexp.
-    // TODO: make this fancy AST parsing, like r.js does.
-    var deps = [];
-    fnText
-      .replace(commentRegExp, '')
-      .replace(systemGetRegExp, function (match, dep) {
-          deps.push(dep);
-      });
-    return deps;
   }
 
   ModuleLoader = function ModuleLoader(options) {
@@ -4325,15 +4413,13 @@ parseStatement: true, parseSourceElement: true */
         return;
       }
 
-      // Parse for dependencies in the factory,
-      // TODO: BUT ALSO any System.define calls and seed the loads for
-      // that system instance. WAIT A MINUTE: this is that system
-      // instance?
+      // Parse for dependencies in the factory, and any System.define
+      // calls for local modules.
       load.deps = [];
-      var allDeps = findDependencies(load._factory.toString());
+      var parseResult = parse.fromFactory(load._factory);
 
       // Convert to normalized names
-      Promise.all(allDeps.map(function(dep) {
+      Promise.all(parseResult.deps.map(function(dep) {
         return this.normalize(dep, this._refererName);
       }.bind(this)))
       .then(function(normalizedDeps) {
@@ -4353,7 +4439,8 @@ parseStatement: true, parseSourceElement: true */
           // What about custom hooks, they should be passed down?
           var system = new ModuleLoader({
             parent: this,
-            refererName: load.name
+            refererName: load.name,
+            _knownLocalModules: parseResult.localModules
           });
 
           try {
@@ -4362,21 +4449,38 @@ parseStatement: true, parseSourceElement: true */
             return load.reject(e);
           }
 
-          // Get final module value
-          var exports = system._exports;
+          Promise.cast().then(function () {
+            if (hasProp(system, '_exportsFromLocal')) {
+              // Need to wait for local define to resolve,
+              // so set a listener for it now
+              var localName = system._exportsFromLocal,
+                  load = system._loads[localName];
 
-          this._modules[load.name] = {
-            exports: exports
-          };
+              return load.whenFulfilled.then(function (value) {
+                // Purposely do not return a value, in case the
+                // module export is a Promise.
+                system._exports = system._modules[localName];
+              });
+            }
+          }.bind(this))
+          .then(function() {
+            // Get final module value
+            var exports = system._exports;
 
-          // Set _modules object, to include .exports
-          // resolve the final promise on the load
-          load._moduleResolve(exports);
+            var moduleDef = this._modules[load.name] = {
+              exports: exports
+            };
 
-          // TODO: clean up the load, remove it so it can be garbage collected,
-          // by calling then on the whenFulfilled thing. Is this safe to do
-          // though? promise microtasks and the load reference that is used
-          // across async calls in _pipeline might make it a bad idea.
+            // Set _modules object, to include .exports
+            // resolve the final promise on the load
+            load._moduleResolve(moduleDef);
+
+            // TODO: clean up the load, remove it so can be garbage collected,
+            // by calling then on the whenFulfilled thing. Is this safe to do
+            // though? promise microtasks and the load reference that is used
+            // across async calls in _pipeline might make it a bad idea.
+          }.bind(this))
+          .catch(load.reject);
         }.bind(this))
         .catch(load.reject);
       }.bind(this))
@@ -4392,7 +4496,7 @@ parseStatement: true, parseSourceElement: true */
         .then(function(normalizedName) {
           // locate
           if (hasProp(this._modules, normalizedName)) {
-            return this._modules[normalizedName].exports;
+            return this._modules[normalizedName];
           } else if (hasProp(this._loads, normalizedName)) {
             return this._loads[normalizedName].whenFulfilled;
           } else {
@@ -4415,6 +4519,12 @@ parseStatement: true, parseSourceElement: true */
           }
         }.bind(this));
     };
+
+    if (options._knownLocalModules) {
+      options._knownLocalModules.forEach(function(localModuleName) {
+        createLoad(localModuleName);
+      });
+    }
   };
 
   ModuleLoader.prototype = {
@@ -4470,8 +4580,20 @@ parseStatement: true, parseSourceElement: true */
     },
 
     set: function(value) {
-      // TODO: throw if this called after the factory has run.
+      if (hasProp(this, '_exportsFromLocal')) {
+        throw new Error('system.setFromLocal() already called');
+      }
+
+      // TODO: throw if called after module is considered "defined"
       this._exports = value;
+    },
+    setFromLocal: function(localName) {
+      if (hasProp(this, '_exports')) {
+        throw new Error('system.set() already called');
+      }
+
+      // TODO: throw if called after module is considered "defined"
+      this._exportsFromLocal = localName;
     },
     // END declarative API
 
@@ -4506,7 +4628,10 @@ parseStatement: true, parseSourceElement: true */
       var p = prim.all(args.map(function(name) {
         return this._pipeline(this._normIfReferer(name));
       }.bind(this)))
-      .then(function(exportArray) {
+      .then(function(moduleDefArray) {
+        var exportArray = moduleDefArray.map(function(def) {
+          return def.exports;
+        });
         callback.apply(null, exportArray);
       });
 

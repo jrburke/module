@@ -291,6 +291,12 @@ available in any of them the topmost loader will dynamically load it.
 
 ----
 
+Tests to write:
+
+* return a promise for a module value, make sure that works, promise unwrapping not in the way.
+* return a promise for a setFromLocal case too, promise unwrapping not in the way.
+
+
 So creating a load, it should favor direct system.define() for one (parsed out when getting the factory function, otherwise, ask for parent load, and if it does not
 have one, go up to topmost to get one. So, only get an intermediate one if a load
 has already been registered.
