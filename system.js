@@ -224,9 +224,9 @@ var system, ModuleLoader;
 
 
   // START wrapping for esprima
-  var esprima;
+  var esprima = {};
   (function() {
-    var exports = {};
+    var exports = esprima;
     /*
   Copyright (C) 2012 Ariya Hidayat <ariya.hidayat@gmail.com>
   Copyright (C) 2012 Mathias Bynens <mathias@qiwi.be>
@@ -4136,8 +4136,7 @@ parseStatement: true, parseSourceElement: true */
 }));
 /* vim: set sw=4 ts=4 et tw=80 : */
 
-    esprima = exports.esprima;
-  });
+  }());
   // END wrapping for esprima
 
   /*global esprima */
@@ -4416,7 +4415,12 @@ var parse;
       // Parse for dependencies in the factory, and any System.define
       // calls for local modules.
       load.deps = [];
-      var parseResult = parse.fromFactory(load._factory);
+      var parseResult;
+      try {
+        parseResult = parse.fromFactory(load._factory);
+      } catch (e) {
+        return load.reject(e);
+      }
 
       // Convert to normalized names
       Promise.all(parseResult.deps.map(function(dep) {

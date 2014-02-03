@@ -5,12 +5,11 @@ var system, ModuleLoader;
   // INSERT prim
 
   // START wrapping for esprima
-  var esprima;
+  var esprima = {};
   (function() {
-    var exports = {};
+    var exports = esprima;
     // INSERT esprima
-    esprima = exports.esprima;
-  });
+  }());
   // END wrapping for esprima
 
   // INSERT parse
@@ -185,7 +184,12 @@ var system, ModuleLoader;
       // Parse for dependencies in the factory, and any System.define
       // calls for local modules.
       load.deps = [];
-      var parseResult = parse.fromFactory(load._factory);
+      var parseResult;
+      try {
+        parseResult = parse.fromFactory(load._factory);
+      } catch (e) {
+        return load.reject(e);
+      }
 
       // Convert to normalized names
       Promise.all(parseResult.deps.map(function(dep) {

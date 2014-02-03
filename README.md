@@ -291,6 +291,9 @@ available in any of them the topmost loader will dynamically load it.
 
 ----
 
+?? setFromLocal
+
+
 Tests to write:
 
 * return a promise for a module value, make sure that works, promise unwrapping not in the way.
