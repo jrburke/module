@@ -551,6 +551,7 @@ var system, ModuleLoader;
     },
 
     set: function(value) {
+      // TODO: throw if this called after the factory has run.
       this._exports = value;
     },
     // END declarative API

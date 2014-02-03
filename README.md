@@ -218,14 +218,76 @@ value. It must be set before the end of the module body execution.
 var { paint } = system.get('brush');
 var pixelate = system.get('pixelate');
 
-system.get({
+var someData = {};
+
+pixelate(someData);
+
+system.set({
   paint: paint,
   pixelate: pixelate
 });
 ```
 
-A module
+Multiple modules can be inlined in a file by using `system.define`, where
+the module body is stored in a function.
 
+```javascript
+system.define('colorize', function(System) {
+  system.set(function colorize() {});
+});
+
+system.define('blur', function(System) {
+  system.set(function blur() {});
+});
+
+system.define('effects', function(System) {
+  system.set({
+    colorize: system.get('colorize'),
+    blur: system.get('blur')
+  })
+});
+```
+
+For files that contain one module, `system.define` is not used, but the load
+can conceptually treat this as executing a `system.define` with the contents
+of the file as the body of the factory function passed to `system.define`.
+
+Each module gets its own instance of `system` that is customized to that
+module.
+
+`system.define` modules can be nested, and the nested modules are only visible
+to each other on the same level, and to the parent module containing them.
+
+```javascript
+system.define('colorize', function(System) {
+  system.set(function colorize() {});
+});
+
+system.define('blur', function(System) {
+  system.set(function blur() {});
+});
+
+system.define('effects', function(System) {
+  system.set({
+    colorize: system.get('colorize'),
+    blur: system.get('blur')
+  })
+});
+
+// 'effects' is visible to this module
+var effects = system.get('effects');
+
+// Loaded from the outermost loader.
+var $ = system.get('jquery');
+
+system.set(function applyEffectsToDom(selector) {
+  return effects.colorize(effects.blur($(selector)[0]));
+});
+```
+
+When a module is not present, at the immediate module's loader level, it is
+searched for up the chain of nested system loader instances. If it is not
+available in any of them the topmost loader will dynamically load it.
 
 ----
 
