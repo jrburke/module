@@ -33,7 +33,7 @@ var system, ModuleLoader;
       var xhr = new XMLHttpRequest();
 
       xhr.open('GET', address, true);
-      xhr.onreadystatechange = function(evt) {
+      xhr.onreadystatechange = function() {
         var status, err;
         if (xhr.readyState === 4) {
           status = xhr.status;
@@ -50,6 +50,170 @@ var system, ModuleLoader;
       xhr.responseType = 'text';
       xhr.send(null);
     });
+  }
+
+  function createFetch(loader, load) {
+    var normalizedName = load.name,
+        address = load.address;
+
+    var fetch = new Promise(function(resolve, reject) {
+      var load = loader._loads[normalizedName];
+
+      Promise.cast(loader.fetch(load))
+        .then(function(source) {
+          load.source = source;
+          return loader.translate(load);
+        })
+        .then(function(source) {
+
+          var parseResult = parse.fromBody(source, 'system');
+          load.parseResult = parseResult;
+
+          // If it looks like a module body, hten wrap,
+          // in a module body function wrapper. Otherwise,
+          // treat it as a normal non-module script.
+          if (parseResult.isModule) {
+            source = 'system.define(\'' + normalizedName +
+                     '\', function(system) {\n' +
+                     source +
+                     '\n});';
+          }
+          source += '\r\n//# sourceURL=' + address;
+
+          loader.eval(source);
+          resolve();
+        })
+        .catch(reject);
+    });
+
+    return (loader._fetches[address] = fetch);
+  }
+
+  function enable(load) {
+    if (load._parentLoad) {
+      return enable(load._parentLoad);
+    }
+
+    var loader = load._loader;
+
+    load._callEnableOnDefine = true;
+
+    if (!load._registered) {
+      load._fetching = true;
+      Promise.cast(loader.locate(load))
+        .then(function(address) {
+          load.address = address;
+
+          var fetch = loader._getFetch(address);
+          if (!fetch) {
+            fetch = createFetch(loader, load);
+          }
+
+          return fetch.then(function() {
+            // Need to call _registered here because loaded thing
+            // may just be a script that does not call system.define()
+            if (!load.parseResult && !load.parseResult.isModule) {
+              load._registered = true;
+            }
+            load._fetching = false;
+          });
+        })
+        .then(function(){
+          enable(load);
+        })
+        .catch(load.reject);
+      return;
+    }
+
+    if (load._fetching || load._enabled) {
+      return;
+    }
+    load._enabled = true;
+    load._callEnableOnDefine = false;
+
+    // Parse for dependencies in the factory, and any System.define
+    // calls for local modules.
+    var parseResult = load.parseResult;
+
+    if (!parseResult && load._factory) {
+      try {
+        parseResult = parse.fromFactory(load._factory);
+        load.parseResult = parseResult;
+      } catch (e) {
+        return load.reject(e);
+      }
+    }
+
+    // A plain script, no dependencies are detectable,
+    // so just proceed as if none.
+    if (!parseResult) {
+      parseResult = { deps: [] };
+    }
+
+    // Convert to normalized names
+    Promise.all(parseResult.deps.map(function(dep) {
+      return loader.normalize(dep, loader._refererName);
+    }))
+    .then(function(normalizedDeps) {
+      // load dependencies
+      Promise.all(normalizedDeps.map(function(dep) {
+        return loader._pipeline(dep);
+      })).then(function() {
+        // create system var and call factory
+        // TODO: is this the right thing to create?
+        // What about custom hooks, they should be passed down?
+        var system = new ModuleLoader({
+          parent: loader,
+          refererName: load.name,
+          _knownLocalModules: parseResult.localModules
+        });
+
+        try {
+          load._factory(system);
+        } catch(e) {
+          return load.reject(e);
+        }
+
+        Promise.cast().then(function () {
+          if (hasProp(system, '_exportsFromLocal')) {
+            // Need to wait for local define to resolve,
+            // so set a listener for it now.
+            var localName = system._exportsFromLocal,
+                load = system._loads[localName];
+
+            // Enable the local module, since needed to set
+            // current module exports
+            enable(load);
+
+            return load.whenFulfilled.then(function (value) {
+              // Purposely do not return a value, in case the
+              // module export is a Promise.
+              system._exports = value.exports;
+            });
+          }
+        })
+        .then(function() {
+          // Get final module value
+          var exports = system._exports;
+
+          var moduleDef = loader._modules[load.name] = {
+            exports: exports
+          };
+
+          // Set _modules object, to include .exports
+          // resolve the final promise on the load
+          load._moduleResolve(moduleDef);
+
+          // TODO: clean up the load, remove it so can be garbage collected,
+          // by calling then on the whenFulfilled thing. Is this safe to do
+          // though? promise microtasks and the load reference that is used
+          // across async calls in _pipeline might make it a bad idea.
+        })
+        .catch(load.reject);
+      })
+      .catch(load.reject);
+    })
+    .catch(load.reject);
   }
 
   ModuleLoader = function ModuleLoader(options) {
@@ -71,15 +235,12 @@ var system, ModuleLoader;
     var instance = this;
 
     function createLoad(normalizedName, parentLoad) {
-
-
-//TODO parentLoad
-
       var load = {
         name: normalizedName,
         metadata: {},
         address: undefined,
-        source: undefined
+        source: undefined,
+        _loader: instance
       };
 
       load.whenFulfilled = new Promise(function(resolve, reject) {
@@ -87,62 +248,16 @@ var system, ModuleLoader;
             load._moduleResolved = true;
             resolve(value);
           };
-          load._fetchResolve = function() {
-            // Need to call _fulfilled here because loaded thing
-            // may just be a script that does not call system.define()
-            if (!load.parseResult && !load.parseResult.isModule) {
-              load._fulfilled = true;
-            }
 
-            if (load._enableWaiting) {
-              instance._enable(load.name);
-            }
-          };
           load.reject = reject;
         });
 
+      if (parentLoad) {
+        load._parentLoad = parentLoad;
+        parentLoad.whenFulfilled.then(load._moduleResolve);
+      }
+
       return (instance._loads[normalizedName] = load);
-    }
-
-    function createFetch(normalizedName, address, fetched) {
-      var fetch = {
-        onAvailable: function(normalizedName, load) {
-          result.then(load._fetchResolve, load.reject);
-        }
-      };
-
-      var result = new Promise(function(resolve, reject) {
-
-        var load = instance._loads[normalizedName];
-
-        Promise.cast(fetched)
-          .then(function(source) {
-            load.source = source;
-            return instance.translate(load);
-          })
-          .then(function(source) {
-
-            var parseResult = parse.fromBody(source, 'system');
-            load.parseResult = parseResult;
-
-            // If it looks like a module body, hten wrap,
-            // in a module body function wrapper. Otherwise,
-            // treat it as a normal non-module script.
-            if (parseResult.isModule) {
-              source = 'system.define(\'' + normalizedName +
-                       '\', function(system) {\n' +
-                       source +
-                       '\n});';
-            }
-            source += '\r\n//# sourceURL=' + address;
-
-            instance.eval(source);
-            resolve();
-          })
-          .catch(reject);
-      });
-
-      return (instance._fetches[address] = fetch);
     }
 
     this._getCreateLocalLoad = function(normalizedName) {
@@ -154,7 +269,7 @@ var system, ModuleLoader;
       return load;
     };
 
-    this._getCreateParentLoad = function(name) {
+    this._getLoadOrCreateFromTop = function(name) {
       var load;
       if (hasProp(this._loads, name)) {
         load = this._loads[name];
@@ -163,7 +278,7 @@ var system, ModuleLoader;
         // in this instance is bound to it, all should.
         // This also ensures a local _modules entry later
         // for all modules in this loader instance
-        load = this._parent._getCreateParentLoad(name);
+        load = this._parent._getLoadOrCreateFromTop(name);
         if (load) {
           load = createLoad(name, load);
         }
@@ -171,6 +286,7 @@ var system, ModuleLoader;
       if (!load) {
         load = createLoad(name);
       }
+      return load;
     };
 
     this._getFetch = function(address) {
@@ -179,103 +295,6 @@ var system, ModuleLoader;
       } else if (this._parent) {
         return this._parent._getFetch(address);
       }
-    };
-
-    this._enable = function(name) {
-      // TODO look for waiting to be defined name in this loader,
-      // but also look in parent loader defines.
-      //return a promise that gives back the final module value.
-      var load = this._loads[name];
-      load._enableWaiting = true;
-      if (!load._fulfilled || load._enabled) {
-        return;
-      }
-      load._enabled = true;
-      load._enableWaiting = false;
-
-      // Parse for dependencies in the factory, and any System.define
-      // calls for local modules.
-      var parseResult = load.parseResult;
-
-      if (!parseResult && load._factory) {
-        try {
-          parseResult = parse.fromFactory(load._factory);
-          load.parseResult = parseResult;
-        } catch (e) {
-          return load.reject(e);
-        }
-      }
-
-      // A plain script, no dependencies are detectable,
-      // so just proceed as if none.
-      if (!parseResult) {
-        parseResult = { deps: [] };
-      }
-
-      // Convert to normalized names
-      Promise.all(parseResult.deps.map(function(dep) {
-        return this.normalize(dep, this._refererName);
-      }.bind(this)))
-      .then(function(normalizedDeps) {
-        // load dependencies
-        Promise.all(normalizedDeps.map(function(dep) {
-          return this._pipeline(dep);
-        }.bind(this))).then(function() {
-          // create system var and call factory
-          // TODO: is this the right thing to create?
-          // What about custom hooks, they should be passed down?
-          var system = new ModuleLoader({
-            parent: this,
-            refererName: load.name,
-            _knownLocalModules: parseResult.localModules
-          });
-
-          try {
-            load._factory(system);
-          } catch(e) {
-            return load.reject(e);
-          }
-
-          Promise.cast().then(function () {
-            if (hasProp(system, '_exportsFromLocal')) {
-              // Need to wait for local define to resolve,
-              // so set a listener for it now.
-              var localName = system._exportsFromLocal,
-                  load = system._loads[localName];
-
-              // Enable the local module, since needed to set
-              // current module exports
-              system._enable(localName);
-
-              return load.whenFulfilled.then(function (value) {
-                // Purposely do not return a value, in case the
-                // module export is a Promise.
-                system._exports = value.exports;
-              });
-            }
-          }.bind(this))
-          .then(function() {
-            // Get final module value
-            var exports = system._exports;
-
-            var moduleDef = this._modules[load.name] = {
-              exports: exports
-            };
-
-            // Set _modules object, to include .exports
-            // resolve the final promise on the load
-            load._moduleResolve(moduleDef);
-
-            // TODO: clean up the load, remove it so can be garbage collected,
-            // by calling then on the whenFulfilled thing. Is this safe to do
-            // though? promise microtasks and the load reference that is used
-            // across async calls in _pipeline might make it a bad idea.
-          }.bind(this))
-          .catch(load.reject);
-        }.bind(this))
-        .catch(load.reject);
-      }.bind(this))
-      .catch(load.reject);
     };
 
     this._pipeline = function(name) {
@@ -288,25 +307,10 @@ var system, ModuleLoader;
           // locate
           if (hasProp(this._modules, normalizedName)) {
             return this._modules[normalizedName];
-          } else if (hasProp(this._loads, normalizedName)) {
-            return this._loads[normalizedName].whenFulfilled;
           } else {
-            var load = createLoad(normalizedName);
-
-            return Promise.cast(this.locate(load))
-              .then(function(address) {
-                load.address = address;
-
-                var fetch = this._getFetch(address);
-                if (!fetch) {
-                  fetch = createFetch(normalizedName,
-                                      address,
-                                      this.fetch(load));
-                }
-                fetch.onAvailable(normalizedName, load);
-                this._enable(normalizedName);
-                return load.whenFulfilled;
-              }.bind(this));
+            var load = this._getLoadOrCreateFromTop(normalizedName);
+            enable(load);
+            return load.whenFulfilled;
           }
         }.bind(this));
     };
@@ -315,6 +319,12 @@ var system, ModuleLoader;
       options._knownLocalModules.forEach(function(localModuleName) {
         createLoad(localModuleName);
       });
+    }
+
+    // TODO: enable a debug flag, on script tag? that turns this tracking
+    // on or off
+    if (system && system._allLoaders) {
+      system._allLoaders.push(this);
     }
   };
 
@@ -397,10 +407,10 @@ var system, ModuleLoader;
 
       var load = this._getCreateLocalLoad(name);
       load._factory = fn;
-      load._fulfilled = true;
+      load._registered = true;
 
-      if (load._enableWaiting) {
-        this._enable(name);
+      if (load._callEnableOnDefine) {
+        enable(load);
       }
     },
 
@@ -480,6 +490,7 @@ var system, ModuleLoader;
     }
   };
 
-
   system = new ModuleLoader();
+  // debug stuff
+  system._allLoaders = [];
 }());
