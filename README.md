@@ -1,11 +1,11 @@
 # module
 
-This is an experiment that demonstrates a module system for ECMAScript (ES).
+This is an experiment for an ECMAScript (ES) module proposal.
 
 It builds on the the ModuleLoader API from the current ES proposal, along with
 some other work from the ES module effort so far, but uses a module API instead
 of new syntax, in an effort to reduce the amount of effort and learning it will
-take for people to implement and use the current ES module effort.
+take for people to implement and use the current ES module proposal.
 
 It uses `module` as the API space, because it allows for specifying dependencies
 by using a declarative sounding name, and all IDs lookups are based on the
@@ -20,16 +20,13 @@ surface syntax, and could easily be changed based on feedback.
 
 * The ModuleLoader API and hooks.
 * The concept of a "mutable slot" that is used for module export values.
-* Realms should also be a construct that is used with modules, but not
-demonstrated here, as it is more about the environment that surrounds the
-module system. Plus that is harder to emulate today.
 
 ## Differences from current ES module effort
 
 No import/export language syntax. APIs are used instead.
 
-It seems the primary goal for the import/export syntax was to get a link
-behavior to check export names earlier, and to allow other "compile/link time"
+It seems the primary goal for the import/export syntax was to compile/link time
+capabilities around export name checks and to allow other compile/link time
 features later.
 
 However, this new syntax has nontrivial cost:
@@ -77,20 +74,26 @@ of the prototype properties can be checked.
 On an `import *` or export `* capability`, these have not been needed in
 CommonJS/Node/AMD systems to build large codebases.
 
-If this capability is really desired, or if better property checking is wanted,
-code editors can provide shortcuts to do the bulk export property references,
-and code editors or linters can help with the property checking.
+It is not to say these capabilities are not useful. Their benefits though are
+viewed as not justifying the other costs.
+
+If these capabilities are really desired, code editors can provide shortcuts to
+do the equivalent of inserting code to match import/export *, and code editors
+or linters can help with the property checking. They can do a deeper check too.
 
 **Adding other compile time features later are still possible**
 
 This is just a sketch, using the experimental sweet.js macro work as an example.
-The API syntax shown is just used as illustration.
+The API syntax shown is just used as illustration, not real, just something to
+help when describing the semantics.
 
-The main idea though is to rely on a reader for JS to pull out sections from
-a function that need to wait for final compilation until later, and then in
-the place of that token stream, use a function placeholder that has the reader
-tokens attached to it, and that function is not fully compiled until later when
-any dependency compile time forms are known.
+The main idea is to rely on
+[a reader](https://github.com/mozilla/sweet.js/wiki/design#wiki-reading)
+for JS to pull out sections from a function that need to wait for final
+compilation until later, and then in the place of that token stream, use a
+function placeholder that has the reader tokens attached to it, and that
+function is not fully compiled until later when any dependency compile time
+forms are known.
 
 Example:
 
@@ -102,7 +105,7 @@ var c = module('c');
 // create exportable macro
 module.exportMacro('unless', {/* macro definition here*/});
 
-// export runtime module value for a
+// export module value that is used at runtime.
 module.export({
   name: 'a'
 });
@@ -119,11 +122,11 @@ module.export(function b(x) {
 ```
 
 The reader parses 'a' and sees the module APIs in play, and
-`module.exportMacro`. It pulls out the token sections for
+`module.exportMacro`. It pulls out the token section for
 `module.exportMacro`, and since module bodies in the `module` approach are just
 functions, it annotates the function with the pieces of information:
 
-* module dependencies referenced
+* module dependencies referenced.
 * set of macros found.
 
 The module system can then use this annotated function for the "factory
@@ -146,15 +149,16 @@ function() {
 That PartialParsedFunction is annotated with these
 pieces of information:
 
-* module dependencies referenced (it would include 'a' since )
+* module dependencies referenced.
+* list of macros needed.
 * reader tokens waiting for final compile forms to be available.
 
 The module loader runs a's factory function to create the runtime exports for
 a. Now that it is complete, the module loader comes to b's factory function.
 
-Since that factory function is a PartialParsedFunction, it uses the macros
-needed for it from the set it knows that were found from 'a', then completes
-the final parsing of the function to a regular function and then executes it.
+Since that factory function is a PartialParsedFunction, it grabs 'unless' from
+'a', then completes the final parsing of the function, and uses that function
+in place of the PartialParsedFunction, and then executes that function.
 
 ## ES spec changes
 
@@ -170,14 +174,13 @@ those do not need to be specified now. Hopefully enough has been illustrated to
 show that they could be supported later through without needing to cause
 backward-incompatible changes to the module APIs.
 
-So for ES6, the new work is primarily around the mutable slot work. Work for it
-was already required for ES6, but the `module` proposal expands on it a bit.
+So for ES6, the new language work is primarily around the mutable slots. Work
+for it was already required for ES6, but the `module` proposal extends it.
 
-But it is important to note that no new HTML changes are needed, and while this
-should not be a primary goal, enough of the module approach could be polyfilled
-sooner to get more people to try it out before it has be considered done.
+But it is important to note that no new HTML changes are needed, just work in
+JavaScript.
 
-## mutable slots
+### mutable slots
 
 The current ES proposal relies on a "mutable slot" concept for exports. This
 allows circular dependencies to work well. That concept is reused for `module`,
