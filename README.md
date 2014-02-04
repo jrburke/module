@@ -1,11 +1,11 @@
 # module
 
-This is an experiment that demonstrates, through working code, a module system
-for ECMAScript (ES). It builds on the the ModuleLoader API from the current ES
-proposal, along with some other work from the ES module effort so far, but uses
-a module API instead of new syntax, in an effort to reduce the amount of effort
-and learning it will take for people to implement and use the current ES module
-effort.
+This is an experiment that demonstrates a module system for ECMAScript (ES).
+
+It builds on the the ModuleLoader API from the current ES proposal, along with
+some other work from the ES module effort so far, but uses a module API instead
+of new syntax, in an effort to reduce the amount of effort and learning it will
+take for people to implement and use the current ES module effort.
 
 It uses `module` as the API space, because it allows for specifying dependencies
 by using a declarative sounding name, and all IDs lookups are based on the
