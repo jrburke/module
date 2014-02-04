@@ -1,22 +1,20 @@
 # module
 
 This is an experiment that demonstrates, through working code, a module system
-for ECMAScript (ES). It builds on the the `System` API from the current ES
-proposal, along with some other work from the ES module effort so far, but makes
-a couple of baseline modifications in an effort to reduce the amount of effort
+for ECMAScript (ES). It builds on the the ModuleLoader API from the current ES
+proposal, along with some other work from the ES module effort so far, but uses
+a module API instead of new syntax, in an effort to reduce the amount of effort
 and learning it will take for people to implement and use the current ES module
 effort.
 
 It uses `module` as the API space, because it allows for specifying dependencies
 by using a declarative sounding name, and all IDs lookups are based on the
-module name-to-path semantics. `System` is vague too, as it could indicate
-the browser or operating system API.
+module name-to-path semantics. `System` as an API space can be seen as too vague
+of a name. For example, it could indicate the browser or operating system API.
 
 However, much of the mechanics of `module` is based on the current design
-thoughts around `System`, so the name change is really surface syntax, and
-could easily be changed based on feedback.
-
-ModuleLoader is still used
+thoughts around `System` and the ModuleLoader API, so the name change is really
+surface syntax, and could easily be changed based on feedback.
 
 ## ES module work reused
 
@@ -24,34 +22,34 @@ ModuleLoader is still used
 * The concept of a "mutable slot" that is used for module export values.
 * Realms should also be a construct that is used with modules, but not
 demonstrated here, as it is more about the environment that surrounds the
-module system.
+module system. Plus that is harder to emulate today.
 
 ## Differences from current ES module effort
 
-* No import/export language syntax. APIs are used instead.
+No import/export language syntax. APIs are used instead.
 
 It seems the primary goal for the import/export syntax was to get a link
-behavior to check export names earlier, and to allow other "compile time"
+behavior to check export names earlier, and to allow other "compile/link time"
 features later.
 
 However, this new syntax has nontrivial cost:
 
-* It requires top level syntax forms that lead to also needing changes to HTML
-to support this work. This increases the learning curve for HTML, and needing
-to couple the ES and HTML changes together is a sign of a more complicated
-design.
+* It leads to also needing changes to HTML to support this work. This increases
+the learning curve for HTML and JS use with it. Needing to couple the ES and
+HTML changes together is a sign of a more complicated design.
 * It is hard to support a REPL or jsbin-style "just type JS" with the syntax
 forms.
 * There are complications around default export and named export, and how that
 looks like to `System.import`: for example, it would be ugly if a user had to
 reference a `.default` property in the import success callback, where in the
 import syntax form it is not necessary.
-* The syntax encourages the desire for lexical modules. This is very hard to
-reconcile with the dynamic parts of ES module loading.
-* This is also evident for the need of a per-module `System` construct, to
-make sure modules loaded via `System.import` are stored in the correct
-module loader instance. Plus, the practical usefulness, as demonstrated in AMD,
-of a module being able to know its module name and address (`module.id` and
+* The syntax leads to harder expectations around lexical modules. This is hard
+to reconcile with the dynamic parts of ES module loading.
+* There is a need for
+[a per-module `System` construct](https://github.com/jorendorff/js-loaders/issues/89#issuecomment-31975797),
+to make sure modules loaded via `System.import` are stored in the correct module
+loader instance. Plus, the practical usefulness, as demonstrated in AMD, of a
+module being able to know its module name and address (`module.id` and
 `module.uri` in AMD, originally specified in CommonJS modules).
 * Because of the uncertainty around lexical modules, the bundling API is not
 optimal: passing JS strings to `System.define` looks ugly, and causes
@@ -66,24 +64,27 @@ It is expected that once modules are available in the language, the use of
 default exports, and splitting modules into fine grained, single export modules
 will be very common. This will be done for practical concerns:
 
-* It is just easier to reason about the code while developing it
+* It is easier to reason about the code while developing it.
 * For browser bundling, it creates very clear, easy boundaries to make it easy
 to exclude code from a collection of modules to the amount that is actually
 used. "Advanced" minifiers like closure compiler are difficult to use to
-get the same benefit. Existing AMD module use bears this out.
+get the same benefit.
 
 Plus, the export checking will not help with any secondary level property
-references. For example, if the default export is a constructor function,
+references. For example, if the default export is a constructor function, none
+of the prototype properties can be checked.
 
 On an `import *` or export `* capability`, these have not been needed in
-CommonJS/Node/AMD systems to build large codebases. If this capability is
-really desired, code editors can provide shortcuts to do the bulk export
-property references.
+CommonJS/Node/AMD systems to build large codebases.
+
+If this capability is really desired, or if better property checking is wanted,
+code editors can provide shortcuts to do the bulk export property references,
+and code editors or linters can help with the property checking.
 
 **Adding other compile time features later are still possible**
 
 This is just a sketch, using the experimental sweet.js macro work as an example.
-The API syntax shown is just used as illustration, not a strong recommendation.
+The API syntax shown is just used as illustration.
 
 The main idea though is to rely on a reader for JS to pull out sections from
 a function that need to wait for final compilation until later, and then in
@@ -98,8 +99,7 @@ Example:
 // get dependencies
 var c = module('c');
 
-// create exportable macros
-module.exportMacro('swap', {/* macro definition here*/});
+// create exportable macro
 module.exportMacro('unless', {/* macro definition here*/});
 
 // export runtime module value for a
@@ -108,19 +108,18 @@ module.export({
 });
 
 /***** module 'b' ******/
-// b just wants to use some macros from 'a'
-module.useMacro('a', 'swap', 'unless');
+// b wants to use a macro from 'a'
+module.useMacro('a', 'unless');
 
-
-// export runtime module value for b
-module.set(function b(x) {
+// export module value for b
+module.export(function b(x) {
   return true unless x > 42;
   return false;
 });
 ```
 
-The reader parses 'a' and sees the module APIs in play, and the
-`module.exportMacro` use. It pulls out the token sections for
+The reader parses 'a' and sees the module APIs in play, and
+`module.exportMacro`. It pulls out the token sections for
 `module.exportMacro`, and since module bodies in the `module` approach are just
 functions, it annotates the function with the pieces of information:
 
@@ -132,8 +131,19 @@ function" used for module 'a'.
 
 When 'b' is parsed by the reader, it notices the `module.exportMacro` reference,
 so it does not let the function continue to the grammar parsing stage, and
-instead, creates a function placeholder, perhaps with a new type of
-PartialParsedFunction, and that PartialParsedFunction is annotated with these
+instead, creates a function placeholder, perhaps with a new type, call it a
+PartialParsedFunction.
+
+A PartialParsedFunction can be thought of a function that if called before
+final parsing has been done has a definition something like this:
+
+```javascript
+function() {
+  throw new Error('function is not fully parsed');
+}
+```
+
+That PartialParsedFunction is annotated with these
 pieces of information:
 
 * module dependencies referenced (it would include 'a' since )
@@ -194,7 +204,7 @@ evaluate the code.
 This view sees a mutable export reference similar to a getter.
 
 For this `module` proposal, this is same mechanism would be used, except using
-a module API with destructuring, instead of syntax:
+a module API with destructuring:
 
 ```javascript
 var { paint } = module('brush');
@@ -206,22 +216,27 @@ paint();
 In a polyfill, this would work by replacing the `paint` reference in the AST
 with `(module('brush').paint)`.
 
-## Differences from `System`
+## `module` API description
 
-* No System.import, only module.load.
+The `module` API was chosen such that the API names have a declarative feel, to
+indicate these are used for static, declarative tracing of dependencies.
 
-createHooks, although nested system loaders, loader plugins make more sense.
+Since an API is used it allows the equivalent of import expressions. This has
+been shown to be useful in AMD and node code to reduce the amount of code needed
+to use a dependency.
 
-## `module` description
+However, since the API has a declarative feel to it, it will help set
+expectations that all dependencies are fetched and executed, and expression
+evaluation does not affect that fetching.
 
-### Basic import and export
+### import and export
 
-The module system is based on parsing for dependencies in a module, loading
-and executing dependencies before executing the current module.
+The module system parses the text for module API use, then loads and executes
+dependencies before executing the current module.
 
-The module API indicates dependencies by using `module(StringLiteral)`. A module
-sets the module export using `module.export(value)`, where `value` is the export
-value. It must be set before the end of the module body execution.
+Dependencies are specified by using `module(StringLiteral)`. A module sets the
+export using `module.export(value)`, where `value` is the export value.
+It must be set before the end of the module body execution.
 
 ```javascript
 // A module that depends on two other modules
@@ -260,7 +275,7 @@ module.define('effects', function(module) {
 });
 ```
 
-For files that contain one module, `module.define` is not used, but the load
+For files that contain one module, `module.define` is not used, but the loader
 can conceptually treat this as executing a `module.define` with the contents
 of the file as the body of the factory function passed to `module.define`.
 
@@ -268,14 +283,14 @@ Each module gets its own instance of `module` that is customized to that
 module.
 
 `module.define` modules can be nested, and the nested modules are only visible
-to each other on the same level, and to the parent module containing them.
+to each other on the same level, and to the module containing them.
 
 However, given the async resolution of dependencies (even local modules could
-need dynamically loaded dependencies), `module()` in the same module cannot be
-used to grab those resources and use them in an export for the current function.
+need dynamically loaded dependencies), `module(StringLiteral)` in the same
+module cannot be used to grab a local module and use it in its export.
 
 Instead, there should be a local module that does a `module.define()` to set up
-all of the exported value, and `module.exportLocal()` should be used to
+the desired export, and `module.exportLocal()` should be used to
 specify what local module to use for the current module export.
 
 ```javascript
@@ -316,9 +331,10 @@ module.exportLocal('publicExport');
 ```
 
 If a module does not need a local module for immediate module export, then
-`module.exportLocal` does not need to be used. Additionally, if this is not
-a module body, but just a script in an HTML script tag, `module.load()` can
-be used to get access to these local modules.
+`module.exportLocal` does not need to be used.
+
+Additionally, if this is not a module body, but just a script in an HTML script
+tag, `module.load()` can be used to get access to these local modules.
 
 When a module is not present at the immediate module's loader level, it is
 searched for up the chain of nested module loader instances. If it is not
@@ -326,12 +342,12 @@ available in any of the parents, the topmost loader will dynamically load it.
 
 ### `module.load`
 
-Instead of a `System.import()`, just a `module.load()` for dynamically using
-any modules that may or may not be loaded. This will most commonly be used in
-web pages to start module loading, but could also be used inside a module.
-Therefore, any local module name resolution should work with this call.
+`module.load()` allows dynamically using any modules that may or may not be
+loaded. This will most commonly be used in web pages to start module loading,
+but could also be used inside a module for dependencies that are only known
+at runtime.
 
-It takes a list of modules and a callback function and returns a Promise.
+It takes a list of modules and a callback function. It returns a Promise.
 The success promise value is an array of module exports, but the callback
 function receives them as individual callback arguments. The promise returned
 will hold any error generated by the callback function, if one is generated.
@@ -346,22 +362,46 @@ module.load('a', 'b', function(a, b) {
 
 ## Concerns about existing `module` use in JS
 
-While `module` is used today in some code, notably in CommonJS/Node and AMD
+While `module` is used today, notably in CommonJS/Node and AMD
 module systems, that object is a second-tier object, and it appears as an
 object and not a function. Script detection for those module systems usually
-use `require`, `exports` and `define` for choosing what module system to use.
+use `require`, `exports` and `define` for choosing what module system to invoke.
 
 So it should be possible to use `module` without too much trouble. However,
 a configuration option on the `module` loader could be provided to instruct the
-loader to not inject or provide a wrapping that provies this kind of `module`
+loader to not provide a wrapping that provides this kind of `module`
 object if a script was wanting to use `module` in a different fashion.
 
-In short, the benefits of an API approach and the declarative feel of using
+In summary, the benefits of an API approach and the declarative feel of using
 `module('id')` are larger benefits than trying to avoid `module` for the case
 of some scripts that are a small minority of all scripts and will shrink even
 smaller over time.
 
-----
+## Library construction
+
+The important implementation part is in **parts/m.js**. **parts/build.js**
+builds **module.js** which can run in a modern browser. Latest versions of
+Firefox, Chrome, Safari have all been tried and work.
+
+Tests are run by opening **test/index.html** in a modern web browser.
+
+On the implementation, it is just meant for illustration, to prove out the
+concepts via tests, and not considered production worthy. Most notably, it just
+uses a underscore-prefixed convention to indicate private properties. This is
+just done for ease of implementation and introspection while debugging. However,
+a real implementation would do fancier things to hide those details.
+
+[esprima](http://esprima.org/) is used to parse the module text, so the JS
+support in this implementation is limited to the support provided by esprima. I
+would like to switch to using the sweetjs reader in the future, as it would
+allow more flexibility in the level of JS support.
+
+[prim](https://github.com/requirejs/prim) is used for promise support. It passes
+the a+ promises 2.0.3 tests.
+
+## Scratchpad
+
+This section is just a collection of notes/todos, just for repo developer use.
 
 Tests to write:
 
@@ -369,20 +409,17 @@ Tests to write:
 * return a promise for a setFromLocal case too, promise unwrapping not in the way.
 * test interop with normal scripts that do globals.
 
-TODOS:
-
-* how to do cycles. always transform source to funky gets?
-
-* TODO: need a timeout on loads, since waiting on promises for lifecycle, need to shut down if taking too long. Call reject on specific modules. Allow for a reset though?
-
-* Hmm, will loader plugins really work? the load() method right now allows fetching some
-dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
-
 Notes
 
-* I prefer `return` to set module export, instead of system.set(), as it more correctly enforces "end of factory function means export is considered set" but right now JS grammar does not consider a top level `return` as valid.
-* It may make sense to have a system.import() for specifying dependencies, and system.get() for just runtime fetching. This would allow system.get() to throw an error a bit sooner than if system.get() that returns a mutable slot might.
+* I prefer `return` to set module export, instead of module.export(), as it more correctly enforces "end of factory function means export is considered set" but right now JS grammar does not consider a top level `return` as valid.
 
-Things to consider
+TODOS:
+
+* Implement cycle breaker, only do function body transform to `(module('id'))` if a module is in a cycle.
+
+* need a timeout on loads, since waiting on promises for lifecycle, need to shut down if taking too long. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs?
+
+* Hmm, will AMD-style loader plugins really work? AMD plugin load() method right now allows fetching some
+dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
 
 * How best to do load cleanups. Given async nature, and code could grab a reference to a load in the middle of something like the pipeline that survives across async calls, need to cautious about cleaning up. Maybe it is enough to do it once all module loading has been known to complete for the current cycle, since the module cache would be warm by then.
