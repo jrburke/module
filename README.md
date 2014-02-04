@@ -420,7 +420,6 @@ TODOS:
 
 * need a timeout on loads, since waiting on promises for lifecycle, need to shut down if taking too long. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs?
 
-* Hmm, will AMD-style loader plugins really work? AMD plugin load() method right now allows fetching some
-dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
+* Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
 
 * How best to do load cleanups. Given async nature, and code could grab a reference to a load in the middle of something like the pipeline that survives across async calls, need to cautious about cleaning up. Maybe it is enough to do it once all module loading has been known to complete for the current cycle, since the module cache would be warm by then.
