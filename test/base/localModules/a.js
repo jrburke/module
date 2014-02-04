@@ -1,35 +1,35 @@
 
-system.define('part1', function(system) {
-    system.set({
+module.define('part1', function(module) {
+    module.export({
         name: 'part1',
         // loaded by top level loader
-        b: system.get('b')
+        b: module('b')
     });
 });
 
-system.define('part2', function(system) {
-    system.set({
+module.define('part2', function(module) {
+    module.export({
         name: 'part2',
         canSeeB: function() {
             var mod = 'b';
-            return system.has(mod);
+            return module.has(mod);
         }
     });
 });
 
-system.define('grouped', function(system) {
-    system.set({
+module.define('grouped', function(module) {
+    module.export({
         name: 'grouped',
-        part1: system.get('part1'),
-        part2: system.get('part2')
+        part1: module('part1'),
+        part2: module('part2')
     });
 });
 
-system.define('final', function(system) {
-  system.set({
+module.define('final', function(module) {
+  module.export({
     name: 'a',
-    grouped: system.get('grouped')
+    grouped: module('grouped')
   });
 });
 
-system.setFromLocal('final');
+module.exportLocal('final');

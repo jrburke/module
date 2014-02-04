@@ -20,10 +20,10 @@ doh.register(
 
       // Just has deps, minify-mangled name
       var results = parse.fromFactory(function(mangled) {
-        mangled.get('a');
-        mangled.get('a');
-        mangled.get('b');
-        mangled.set({});
+        mangled('a');
+        mangled('a');
+        mangled('b');
+        mangled.export({});
       });
 
       t.is('a', results.deps[0]);
@@ -32,22 +32,22 @@ doh.register(
       t.is(0, results.localModules.length);
 
       // Has localModules
-      results = parse.fromFactory(function(system) {
-        system.get('d');
+      results = parse.fromFactory(function(module) {
+        module('d');
 
-        system.define('d', function(system) {
-          system.get('shouldNotBeVisible1');
+        module.define('d', function(module) {
+          module('shouldNotBeVisible1');
         });
 
-        system.get('f');
+        module('f');
 
-        system.define('g', function(system) {
-          system.get('shouldNotBeVisible2');
+        module.define('g', function(module) {
+          module('shouldNotBeVisible2');
         });
 
-        system.get('g');
+        module('g');
 
-        system.set({});
+        module.export({});
       });
 
       t.is('d', results.deps[0]);

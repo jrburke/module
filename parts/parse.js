@@ -58,36 +58,45 @@ var parse;
     traverse: traverse,
     traverseBroad: traverseBroad,
 
-    // Parses factory function for system.get() dependencies,
-    // as well as system.define IDs that are local to a module.
+    // Parses factory function for module() dependencies,
+    // as well as module.define IDs that are local to a module.
     fromFactory: function(fn) {
       return parse.fromBody('(' + fn.toString() + ')');
     },
 
     // Parses a possible module body for module API usage:
-    // system.get()
-    // system.define()
-    // system.setFromLocal()
-    fromBody: function (bodyText, systemName) {
+    // module(StringLiteral)
+    // module.define()
+    // module.exportLocal()
+    fromBody: function (bodyText, apiName) {
       // Convert to string, add parens around it so valid esprima
       // parse form.
-      var setFromLocal,
-          usesSet = false,
+      var exportLocal,
+          usesExport = false,
           astRoot = esprima.parse(bodyText),
           deps = [],
           localModules = [];
 
       traverseBroad(astRoot, function(node) {
-        // Minified code could have changed the name of system to something
+        // Minified code could have changed the name of `module` to something
         // else, so find it. It will be the first function expression.
-        if (!systemName && node.type === 'FunctionExpression' &&
+        if (!apiName && node.type === 'FunctionExpression' &&
             node.params && node.params.length === 1) {
-          systemName = node.params[0].name;
+          apiName = node.params[0].name;
+          return;
         }
 
         // Look for dependencies
-        if (matchesCallExpression(node, systemName, 'get')) {
-          var dep = node.arguments[0].value;
+        var e = node.expression;
+        if (node.type === 'ExpressionStatement' && e &&
+            e.type === 'CallExpression' &&
+            e.callee &&
+            e.callee.type === 'Identifier' &&
+            e.callee.name === apiName &&
+            e.arguments &&
+            e.arguments.length === 1 &&
+            e.arguments[0].type === 'Literal') {
+          var dep = e.arguments[0].value;
           if (deps.indexOf(dep) === -1) {
             deps.push(dep);
           }
@@ -95,35 +104,34 @@ var parse;
 
         // Look for local module defines, but only top level,
         // do not inspect inside of them if found.
-        if (matchesCallExpression(node, systemName, 'define')) {
+        if (matchesCallExpression(node, apiName, 'define')) {
           var localModule = node.arguments[0].value;
           localModules.push(localModule);
           return false;
         }
 
-        // Look for system.setFromLocal, since it indicates this code is
+        // Look for module.exportLocal, since it indicates this code is
         // a module, and needs a module function wrapping.
-        if (matchesCallExpression(node, systemName, 'setFromLocal')) {
-          var setFromLocalValue = node.arguments[0].value;
-          setFromLocal = setFromLocalValue;
+        if (matchesCallExpression(node, apiName, 'exportLocal')) {
+          exportLocal = node.arguments[0].value;
           return false;
         }
 
-        // Look for system.set, since it indicates this code is
+        // Look for module.export, since it indicates this code is
         // a module, and needs a module function wrapping.
-        if (matchesCallExpression(node, systemName, 'set')) {
+        if (matchesCallExpression(node, apiName, 'export')) {
           // uses set, and continue parsing lower, since set
           // usage could use get inside to construct the export
-          usesSet = true;
+          usesExport = true;
         }
       });
 
       return {
         deps: deps,
         localModules: localModules,
-        setFromLocal: setFromLocal,
-        // If have deps or a setFromLocal, this is a module body.
-        isModule: !!(deps.length || setFromLocal || usesSet)
+        exportLocal: exportLocal,
+        // If have deps or a exportLocal, this is a module body.
+        isModule: !!(deps.length || exportLocal || usesExport)
       };
     }
   };

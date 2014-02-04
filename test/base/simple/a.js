@@ -1,4 +1,4 @@
-system.set({
+module.export({
   name: 'a',
-  b: system.get('b')
+  b: module('b')
 });

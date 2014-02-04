@@ -1,3 +1,3 @@
-system.set({
+module.export({
   name: 'b'
 });

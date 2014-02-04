@@ -1,4 +1,4 @@
-# system
+# module
 
 This is an experiment that demonstrates, through working code, a module system
 for ECMAScript (ES). It builds on the the `System` API from the current ES
@@ -7,11 +7,16 @@ a couple of baseline modifications in an effort to reduce the amount of effort
 and learning it will take for people to implement and use the current ES module
 effort.
 
-The `System` API was chosen also to hopefully make it easier to understand the
-symantics of this experiment for people who are already familiar with the
-current state of the ES module effort. However, it is expected that once this
-experiment is understood, the API names could change. This experiment also uses
-`system` instead of `System` since it is not a constructor.
+It uses `module` as the API space, because it allows for specifying dependencies
+by using a declarative sounding name, and all IDs lookups are based on the
+module name-to-path semantics. `System` is vague too, as it could indicate
+the browser or operating system API.
+
+However, much of the mechanics of `module` is based on the current design
+thoughts around `System`, so the name change is really surface syntax, and
+could easily be changed based on feedback.
+
+ModuleLoader is still used
 
 ## ES module work reused
 
@@ -35,6 +40,8 @@ However, this new syntax has nontrivial cost:
 to support this work. This increases the learning curve for HTML, and needing
 to couple the ES and HTML changes together is a sign of a more complicated
 design.
+* It is hard to support a REPL or jsbin-style "just type JS" with the syntax
+forms.
 * There are complications around default export and named export, and how that
 looks like to `System.import`: for example, it would be ugly if a user had to
 reference a `.default` property in the import success callback, where in the
@@ -89,33 +96,33 @@ Example:
 ```javascript
 /***** module 'a' ******/
 // get dependencies
-var c = system.get('c');
+var c = module('c');
 
 // create exportable macros
-system.setMacro('swap', {/* macro definition here*/});
-system.setMacro('unless', {/* macro definition here*/});
+module.exportMacro('swap', {/* macro definition here*/});
+module.exportMacro('unless', {/* macro definition here*/});
 
 // export runtime module value for a
-system.set({
+module.export({
   name: 'a'
 });
 
 /***** module 'b' ******/
 // b just wants to use some macros from 'a'
-system.getMacro('a', 'swap', 'unless');
+module.useMacro('a', 'swap', 'unless');
 
 
 // export runtime module value for b
-system.set(function b(x) {
+module.set(function b(x) {
   return true unless x > 42;
   return false;
 });
 ```
 
 The reader parses 'a' and sees the module APIs in play, and the
-`system.setMacro` use. It pulls out the token sections for `system.setMacro`,
-and since module bodies in the `system` approach are just functions, it
-annotates the function with the pieces of information:
+`module.exportMacro` use. It pulls out the token sections for
+`module.exportMacro`, and since module bodies in the `module` approach are just
+functions, it annotates the function with the pieces of information:
 
 * module dependencies referenced
 * set of macros found.
@@ -123,7 +130,7 @@ annotates the function with the pieces of information:
 The module system can then use this annotated function for the "factory
 function" used for module 'a'.
 
-When 'b' is parsed by the reader, it notices the `system.getMacro` reference,
+When 'b' is parsed by the reader, it notices the `module.exportMacro` reference,
 so it does not let the function continue to the grammar parsing stage, and
 instead, creates a function placeholder, perhaps with a new type of
 PartialParsedFunction, and that PartialParsedFunction is annotated with these
@@ -141,7 +148,7 @@ the final parsing of the function to a regular function and then executes it.
 
 ## ES spec changes
 
-`system` relies on the following ES spec changes to work:
+`module` relies on the following ES spec changes to work:
 
 * Defining the ModuleLoader API (similar amounts of work as existing proposal).
 * Uses parsing for a module API use instead of new language tokens.
@@ -154,7 +161,7 @@ show that they could be supported later through without needing to cause
 backward-incompatible changes to the module APIs.
 
 So for ES6, the new work is primarily around the mutable slot work. Work for it
-was already required for ES6, but the `system` proposal expands on it a bit.
+was already required for ES6, but the `module` proposal expands on it a bit.
 
 But it is important to note that no new HTML changes are needed, and while this
 should not be a primary goal, enough of the module approach could be polyfilled
@@ -163,7 +170,7 @@ sooner to get more people to try it out before it has be considered done.
 ## mutable slots
 
 The current ES proposal relies on a "mutable slot" concept for exports. This
-allows circular dependencies to work well. That concept is reused for `system`,
+allows circular dependencies to work well. That concept is reused for `module`,
 and expanded a bit, to first level properties in the module export value.
 
 How I have viewed the mutable slot, in terms of the existing ES module proposal.
@@ -186,45 +193,46 @@ evaluate the code.
 
 This view sees a mutable export reference similar to a getter.
 
-For this `system` proposal, this is same mechanism would be used, except using
+For this `module` proposal, this is same mechanism would be used, except using
 a module API with destructuring, instead of syntax:
 
 ```javascript
-var { paint } = system.get('brush');
+var { paint } = module('brush');
 
 // some time later
 paint();
 ```
 
 In a polyfill, this would work by replacing the `paint` reference in the AST
-with `(System.get('brush').paint)`.
+with `(module('brush').paint)`.
 
 ## Differences from `System`
 
-No System.import, system.load instead
+* No System.import, only module.load.
+
 createHooks, although nested system loaders, loader plugins make more sense.
 
-## `system` description
+## `module` description
 
 ### Basic import and export
 
 The module system is based on parsing for dependencies in a module, loading
 and executing dependencies before executing the current module.
 
-The module API indicates dependencies by using `system.get(String)`. A module
-sets the module export using `system.set(value)`, where `value` is the export
+The module API indicates dependencies by using `module(StringLiteral)`. A module
+sets the module export using `module.export(value)`, where `value` is the export
 value. It must be set before the end of the module body execution.
 
 ```javascript
 // A module that depends on two other modules
-var { paint } = system.get('brush');
-var pixelate = system.get('pixelate');
+var { paint } = module('brush');
+var pixelate = module('pixelate');
 
 var someData = {};
 
 pixelate(someData);
 
-system.set({
+module.export({
   paint: paint,
   pixelate: pixelate
 });
@@ -232,57 +240,57 @@ system.set({
 
 ### Multiple, local modules
 
-Multiple modules can be inlined in a file by using `system.define`, where
+Multiple modules can be inlined in a file by using `module.define`, where
 the module body is stored in a function.
 
 ```javascript
-system.define('colorize', function(system) {
-  system.set(function colorize() {});
+module.define('colorize', function(module) {
+  module.export(function colorize() {});
 });
 
-system.define('blur', function(system) {
-  system.set(function blur() {});
+module.define('blur', function(module) {
+  module.export(function blur() {});
 });
 
-system.define('effects', function(system) {
-  system.set({
-    colorize: system.get('colorize'),
-    blur: system.get('blur')
+module.define('effects', function(module) {
+  module.set({
+    colorize: module('colorize'),
+    blur: module('blur')
   })
 });
 ```
 
-For files that contain one module, `system.define` is not used, but the load
-can conceptually treat this as executing a `system.define` with the contents
-of the file as the body of the factory function passed to `system.define`.
+For files that contain one module, `module.define` is not used, but the load
+can conceptually treat this as executing a `module.define` with the contents
+of the file as the body of the factory function passed to `module.define`.
 
-Each module gets its own instance of `system` that is customized to that
+Each module gets its own instance of `module` that is customized to that
 module.
 
-`system.define` modules can be nested, and the nested modules are only visible
+`module.define` modules can be nested, and the nested modules are only visible
 to each other on the same level, and to the parent module containing them.
 
 However, given the async resolution of dependencies (even local modules could
-need dynamically loaded dependencies), system.get in the same module cannot be
+need dynamically loaded dependencies), `module()` in the same module cannot be
 used to grab those resources and use them in an export for the current function.
 
-Instead, there should be a local module that does a `system.define()` to set up
-all of the exported value, and `system.setFromLocal()` should be used to specify
-what local module to use for the current module export.
+Instead, there should be a local module that does a `module.define()` to set up
+all of the exported value, and `module.exportLocal()` should be used to
+specify what local module to use for the current module export.
 
 ```javascript
-system.define('colorize', function(system) {
-  system.set(function colorize() {});
+module.define('colorize', function(module) {
+  module.export(function colorize() {});
 });
 
-system.define('blur', function(system) {
-  system.set(function blur() {});
+module.define('blur', function(module) {
+  module(function blur() {});
 });
 
-system.define('effects', function(system) {
-  system.set({
-    colorize: system.get('colorize'),
-    blur: system.get('blur')
+module.define('effects', function(module) {
+  module.export({
+    colorize: module('colorize'),
+    blur: module('blur')
   })
 });
 
@@ -290,35 +298,35 @@ system.define('effects', function(system) {
 // 'effects' may not be available yet, and 'effects' is
 // only fully resolved once it is part of an active
 // dependency tree.
-// var effects = system.get('effects');
-// var $ = system.get('jquery');
+// var effects = module('effects');
+// var $ = module('jquery');
 
 // THIS WILL WORK, define a module that does get those dependencies,
-// and then use `system.setFromLocal()` to use that module value as
+// and then use `module.exportLocal()` to use that module value as
 // the export value.
-system.define('publicExport', function(system) {
-  var effects = system.get('effects');
-  var $ = system.get('jquery');
-  system.set(function applyEffectsToDom(selector) {
+module.define('publicExport', function(module) {
+  var effects = module('effects');
+  var $ = module('jquery');
+  module.export(function applyEffectsToDom(selector) {
     return effects.colorize(effects.blur($(selector)[0]));
   });
 });
 
-system.setFromLocal('publicExport');
+module.exportLocal('publicExport');
 ```
 
 If a module does not need a local module for immediate module export, then
-`system.setFromLocal` does not need to be used. Additionally, if this is not
-a module body, but just a script in an HTML script tag, `system.load()` can
+`module.exportLocal` does not need to be used. Additionally, if this is not
+a module body, but just a script in an HTML script tag, `module.load()` can
 be used to get access to these local modules.
 
 When a module is not present at the immediate module's loader level, it is
-searched for up the chain of nested system loader instances. If it is not
+searched for up the chain of nested module loader instances. If it is not
 available in any of the parents, the topmost loader will dynamically load it.
 
-### `system.load`
+### `module.load`
 
-Instead of a `System.import()`, just a `system.load()` for dynamically using
+Instead of a `System.import()`, just a `module.load()` for dynamically using
 any modules that may or may not be loaded. This will most commonly be used in
 web pages to start module loading, but could also be used inside a module.
 Therefore, any local module name resolution should work with this call.
@@ -329,14 +337,29 @@ function receives them as individual callback arguments. The promise returned
 will hold any error generated by the callback function, if one is generated.
 
 ```javascript
-system.load('a', 'b', function(a, b) {
+module.load('a', 'b', function(a, b) {
 })
 .catch(function(error) {
 });
 
 ```
 
+## Concerns about existing `module` use in JS
 
+While `module` is used today in some code, notably in CommonJS/Node and AMD
+module systems, that object is a second-tier object, and it appears as an
+object and not a function. Script detection for those module systems usually
+use `require`, `exports` and `define` for choosing what module system to use.
+
+So it should be possible to use `module` without too much trouble. However,
+a configuration option on the `module` loader could be provided to instruct the
+loader to not inject or provide a wrapping that provies this kind of `module`
+object if a script was wanting to use `module` in a different fashion.
+
+In short, the benefits of an API approach and the declarative feel of using
+`module('id')` are larger benefits than trying to avoid `module` for the case
+of some scripts that are a small minority of all scripts and will shrink even
+smaller over time.
 
 ----
 

@@ -1,4 +1,4 @@
-system.load('a', function(a) {
+module.load('a', function(a) {
   doh.register(
     'localModules',
     [

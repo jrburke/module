@@ -1,4 +1,4 @@
-var system, ModuleLoader;
+var module, ModuleLoader;
 (function() {
   'use strict';
 
@@ -26,6 +26,16 @@ var system, ModuleLoader;
 
   function slice(arrayLike) {
     return aslice.call(arrayLike, 0);
+  }
+
+  function mix(target, mixin, force) {
+    Object.keys(mixin).forEach(function(key) {
+      if (force || !hasProp(target, key)) {
+        var descriptor = Object.getOwnPropertyDescriptor(mixin, key);
+        Object.defineProperty(target, key, descriptor);
+      }
+    });
+    return target;
   }
 
   function fetchText(address) {
@@ -66,15 +76,15 @@ var system, ModuleLoader;
         })
         .then(function(source) {
 
-          var parseResult = parse.fromBody(source, 'system');
+          var parseResult = parse.fromBody(source, 'module');
           load.parseResult = parseResult;
 
           // If it looks like a module body, hten wrap,
           // in a module body function wrapper. Otherwise,
           // treat it as a normal non-module script.
           if (parseResult.isModule) {
-            source = 'system.define(\'' + normalizedName +
-                     '\', function(system) {\n' +
+            source = 'module.define(\'' + normalizedName +
+                     '\', function(module) {\n' +
                      source +
                      '\n});';
           }
@@ -111,7 +121,7 @@ var system, ModuleLoader;
 
           return fetch.then(function() {
             // Need to call _registered here because loaded thing
-            // may just be a script that does not call system.define()
+            // may just be a script that does not call module.define()
             if (!load.parseResult && !load.parseResult.isModule) {
               load._registered = true;
             }
@@ -131,7 +141,7 @@ var system, ModuleLoader;
     load._enabled = true;
     load._callEnableOnDefine = false;
 
-    // Parse for dependencies in the factory, and any System.define
+    // Parse for dependencies in the factory, and any module.define
     // calls for local modules.
     var parseResult = load.parseResult;
 
@@ -159,48 +169,48 @@ var system, ModuleLoader;
       Promise.all(normalizedDeps.map(function(dep) {
         return loader._pipeline(dep);
       })).then(function() {
-        // create system var and call factory
+        // create module var and call factory
         // TODO: is this the right thing to create?
         // What about custom hooks, they should be passed down?
-        var system = new ModuleLoader({
+        var module = new ModuleLoader({
           parent: loader,
           refererName: load.name,
           _knownLocalModules: parseResult.localModules
         });
 
         try {
-          load._factory(system);
+          load._factory(module);
         } catch(e) {
           return load.reject(e);
         }
 
         Promise.cast().then(function () {
-          if (hasProp(system, '_exportsFromLocal')) {
+          if (hasProp(module, '_exportLocal')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
-            var localName = system._exportsFromLocal,
-                load = system._loads[localName];
+            var localName = module._exportLocal,
+                load = module._loads[localName];
 
             // Enable the local module, since needed to set
-            // current module exports
+            // current module export
             enable(load);
 
             return load.whenFulfilled.then(function (value) {
               // Purposely do not return a value, in case the
               // module export is a Promise.
-              system._exports = value.exports;
+              module._export = value.export;
             });
           }
         })
         .then(function() {
           // Get final module value
-          var exports = system._exports;
+          var exportValue = module.export;
 
           var moduleDef = loader._modules[load.name] = {
-            exports: exports
+            export: exportValue
           };
 
-          // Set _modules object, to include .exports
+          // Set _modules object, to include .export
           // resolve the final promise on the load
           load._moduleResolve(moduleDef);
 
@@ -219,20 +229,35 @@ var system, ModuleLoader;
   ModuleLoader = function ModuleLoader(options) {
     options = options || {};
 
-    if (options.createHooks) {
-      var hooks = options.createHooks(this);
-      hookNames.forEach(function(hookName) {
-        this[hookName] = hooks[hookName];
-      }.bind(this));
+    function module(name) {
+      var normalizedName = instance._normIfReferer(name);
+
+      if (instance._hasNormalized(normalizedName)) {
+        return instance._modules[normalizedName].export;
+      } else if (instance._parent) {
+        return instance._parent.get(normalizedName);
+      }
+
+      throw new Error('module with name "' +
+                      normalizedName + '" does not have an export');
     }
 
-    this._parent = options.parent;
-    this._refererName = options.refererName;
-    this._modules = {};
-    this._loads = {};
-    this._fetches = {};
+    var instance = module;
 
-    var instance = this;
+    mix(module, ModuleLoader.prototype, true);
+
+    if (options.createHooks) {
+      var hooks = options.createHooks(instance);
+      hookNames.forEach(function(hookName) {
+        instance[hookName] = hooks[hookName];
+      });
+    }
+
+    instance._parent = options.parent;
+    instance._refererName = options.refererName;
+    instance._modules = {};
+    instance._loads = {};
+    instance._fetches = {};
 
     function createLoad(normalizedName, parentLoad) {
       var load = {
@@ -260,25 +285,25 @@ var system, ModuleLoader;
       return (instance._loads[normalizedName] = load);
     }
 
-    this._getCreateLocalLoad = function(normalizedName) {
-      var load = hasProp(this._loads, normalizedName) &&
-                 this._loads[normalizedName];
+    instance._getCreateLocalLoad = function(normalizedName) {
+      var load = hasProp(instance._loads, normalizedName) &&
+                 instance._loads[normalizedName];
       if (!load) {
         load = createLoad(normalizedName);
       }
       return load;
     };
 
-    this._getLoadOrCreateFromTop = function(name) {
+    instance._getLoadOrCreateFromTop = function(name) {
       var load;
-      if (hasProp(this._loads, name)) {
-        load = this._loads[name];
-      } else if (this._parent) {
+      if (hasProp(instance._loads, name)) {
+        load = instance._loads[name];
+      } else if (instance._parent) {
         // Store a local load for it, now that one module
         // in this instance is bound to it, all should.
         // This also ensures a local _modules entry later
         // for all modules in this loader instance
-        load = this._parent._getLoadOrCreateFromTop(name);
+        load = instance._parent._getLoadOrCreateFromTop(name);
         if (load) {
           load = createLoad(name, load);
         }
@@ -289,30 +314,30 @@ var system, ModuleLoader;
       return load;
     };
 
-    this._getFetch = function(address) {
-      if (hasProp(this._fetches, address)) {
-        return this._fetches[address];
-      } else if (this._parent) {
-        return this._parent._getFetch(address);
+    instance._getFetch = function(address) {
+      if (hasProp(instance._fetches, address)) {
+        return instance._fetches[address];
+      } else if (instance._parent) {
+        return instance._parent._getFetch(address);
       }
     };
 
-    this._pipeline = function(name) {
+    instance._pipeline = function(name) {
       return Promise.cast()
         .then(function() {
           // normalize
-          return Promise.cast(this.normalize(name));
-        }.bind(this))
+          return Promise.cast(instance.normalize(name));
+        })
         .then(function(normalizedName) {
           // locate
-          if (hasProp(this._modules, normalizedName)) {
-            return this._modules[normalizedName];
+          if (hasProp(instance._modules, normalizedName)) {
+            return instance._modules[normalizedName];
           } else {
-            var load = this._getLoadOrCreateFromTop(normalizedName);
+            var load = instance._getLoadOrCreateFromTop(normalizedName);
             enable(load);
             return load.whenFulfilled;
           }
-        }.bind(this));
+        });
     };
 
     if (options._knownLocalModules) {
@@ -323,11 +348,15 @@ var system, ModuleLoader;
 
     // TODO: enable a debug flag, on script tag? that turns this tracking
     // on or off
-    if (system && system._allLoaders) {
-      system._allLoaders.push(this);
+    if (topModule && topModule._allLoaders) {
+      topModule._allLoaders.push(module);
     }
+
+    return module;
   };
 
+  // Specified as a prototype, but these values are just mixed in
+  // to the ModuleLoader instance function.
   ModuleLoader.prototype = {
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
@@ -367,34 +396,21 @@ var system, ModuleLoader;
     // END module lifecycle events
 
     // START declarative API
-    get: function(name) {
-      var normalizedName = this._normIfReferer(name);
-
-      if (this._hasNormalized(normalizedName)) {
-        return this._modules[normalizedName].exports;
-      } else if (this._parent) {
-        return this._parent.get(normalizedName);
-      }
-
-      throw new Error('module with name "' +
-                      normalizedName + '" does not have an exports');
-    },
-
-    set: function(value) {
-      if (hasProp(this, '_exportsFromLocal')) {
-        throw new Error('system.setFromLocal() already called');
+    export: function(value) {
+      if (hasProp(this, '_exportLocal')) {
+        throw new Error('module.exportLocal() already called');
       }
 
       // TODO: throw if called after module is considered "defined"
-      this._exports = value;
+      this._export = value;
     },
-    setFromLocal: function(localName) {
-      if (hasProp(this, '_exports')) {
-        throw new Error('system.set() already called');
+    exportLocal: function(localName) {
+      if (hasProp(this, '_export')) {
+        throw new Error('module.export() already called');
       }
 
       // TODO: throw if called after module is considered "defined"
-      this._exportsFromLocal = localName;
+      this._exportLocal = localName;
     },
     // END declarative API
 
@@ -433,7 +449,7 @@ var system, ModuleLoader;
       }.bind(this)))
       .then(function(moduleDefArray) {
         var exportArray = moduleDefArray.map(function(def) {
-          return def.exports;
+          return def.export;
         });
         callback.apply(null, exportArray);
       });
@@ -465,7 +481,7 @@ var system, ModuleLoader;
 
     _hasNormalized: function(normalizedName) {
       return hasProp(this._modules, normalizedName) &&
-             hasProp(this._modules[normalizedName], 'exports');
+             hasProp(this._modules[normalizedName], 'export');
     },
 
     delete: function(name) {
@@ -490,7 +506,8 @@ var system, ModuleLoader;
     }
   };
 
-  system = new ModuleLoader();
+  module = new ModuleLoader();
+  var topModule = module;
   // debug stuff
-  system._allLoaders = [];
+  module._allLoaders = [];
 }());
