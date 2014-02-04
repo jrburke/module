@@ -57,6 +57,13 @@ doh.register(
       t.is('d', results.localModules[0]);
       t.is('g', results.localModules[1]);
       t.is(2, results.localModules.length);
+
+      // dependency in an object literal
+      var text = 'module.export({ name: \'a\', b: module(\'b\') });';
+      results = parse.fromBody(text, 'module');
+
+      t.is('b', results.deps[0]);
+      t.is(1, results.deps.length);
     }
   ]
 );

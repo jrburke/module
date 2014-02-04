@@ -87,16 +87,14 @@ var parse;
         }
 
         // Look for dependencies
-        var e = node.expression;
-        if (node.type === 'ExpressionStatement' && e &&
-            e.type === 'CallExpression' &&
-            e.callee &&
-            e.callee.type === 'Identifier' &&
-            e.callee.name === apiName &&
-            e.arguments &&
-            e.arguments.length === 1 &&
-            e.arguments[0].type === 'Literal') {
-          var dep = e.arguments[0].value;
+        if (node.type === 'CallExpression' &&
+            node.callee &&
+            node.callee.type === 'Identifier' &&
+            node.callee.name === apiName &&
+            node.arguments &&
+            node.arguments.length === 1 &&
+            node.arguments[0].type === 'Literal') {
+          var dep = node.arguments[0].value;
           if (deps.indexOf(dep) === -1) {
             deps.push(dep);
           }

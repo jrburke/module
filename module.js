@@ -4228,16 +4228,14 @@ var parse;
         }
 
         // Look for dependencies
-        var e = node.expression;
-        if (node.type === 'ExpressionStatement' && e &&
-            e.type === 'CallExpression' &&
-            e.callee &&
-            e.callee.type === 'Identifier' &&
-            e.callee.name === apiName &&
-            e.arguments &&
-            e.arguments.length === 1 &&
-            e.arguments[0].type === 'Literal') {
-          var dep = e.arguments[0].value;
+        if (node.type === 'CallExpression' &&
+            node.callee &&
+            node.callee.type === 'Identifier' &&
+            node.callee.name === apiName &&
+            node.arguments &&
+            node.arguments.length === 1 &&
+            node.arguments[0].type === 'Literal') {
+          var dep = node.arguments[0].value;
           if (deps.indexOf(dep) === -1) {
             deps.push(dep);
           }
@@ -4465,16 +4463,16 @@ var parse;
             return load.whenFulfilled.then(function (value) {
               // Purposely do not return a value, in case the
               // module export is a Promise.
-              module._export = value.export;
+              module._export = value.exportValue;
             });
           }
         })
         .then(function() {
           // Get final module value
-          var exportValue = module.export;
+          var exportValue = module._export;
 
           var moduleDef = loader._modules[load.name] = {
-            export: exportValue
+            exportValue: exportValue
           };
 
           // Set _modules object, to include .export
@@ -4500,9 +4498,9 @@ var parse;
       var normalizedName = instance._normIfReferer(name);
 
       if (instance._hasNormalized(normalizedName)) {
-        return instance._modules[normalizedName].export;
+        return instance._modules[normalizedName].exportValue;
       } else if (instance._parent) {
-        return instance._parent.get(normalizedName);
+        return instance._parent(normalizedName);
       }
 
       throw new Error('module with name "' +
@@ -4716,9 +4714,10 @@ var parse;
       }.bind(this)))
       .then(function(moduleDefArray) {
         var exportArray = moduleDefArray.map(function(def) {
-          return def.export;
+          return def.exportValue;
         });
         callback.apply(null, exportArray);
+        return exportArray;
       });
 
       if (errback) {
@@ -4748,7 +4747,7 @@ var parse;
 
     _hasNormalized: function(normalizedName) {
       return hasProp(this._modules, normalizedName) &&
-             hasProp(this._modules[normalizedName], 'export');
+             hasProp(this._modules[normalizedName], 'exportValue');
     },
 
     delete: function(name) {
