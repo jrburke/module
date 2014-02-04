@@ -216,7 +216,8 @@ paint();
 ```
 
 In a polyfill, this would work by replacing the `paint` reference in the AST
-with `(module('brush').paint)`.
+with `(module('brush').paint)`, and rewriting the destructure to just be
+`module('brush')`.
 
 ## `module` API description
 
@@ -224,17 +225,17 @@ The `module` API was chosen such that the API names have a declarative feel, to
 indicate these are used for static, declarative tracing of dependencies.
 
 Since an API is used it allows the equivalent of import expressions. This has
-been shown to be useful in AMD and node code to reduce the amount of code needed
-to use a dependency.
+been useful in AMD and node code to reduce the amount of code needed to use a
+dependency.
 
 However, since the API has a declarative feel to it, it will help set
 expectations that all dependencies are fetched and executed, and expression
-evaluation does not affect that fetching.
+evaluation does not affect that fetching and execution.
 
 ### import and export
 
-The module system parses the text for module API use, then loads and executes
-dependencies before executing the current module.
+The module system parses the text of a module for module API use, then loads and
+executes dependencies before executing the module.
 
 Dependencies are specified by using `module(StringLiteral)`. A module sets the
 export using `module.export(value)`, where `value` is the export value.
@@ -371,13 +372,11 @@ use `require`, `exports` and `define` for choosing what module system to invoke.
 
 So it should be possible to use `module` without too much trouble. However,
 a configuration option on the `module` loader could be provided to instruct the
-loader to not provide a wrapping that provides this kind of `module`
-object if a script was wanting to use `module` in a different fashion.
+loader to not provide a wrapping for its `module` object if a script was wanting
+to use `module` in a different fashion.
 
-In summary, the benefits of an API approach and the declarative feel of using
-`module('id')` are larger benefits than trying to avoid `module` for the case
-of some scripts that are a small minority of all scripts and will shrink even
-smaller over time.
+In summary, the benefits of an API approach and the terse, declarative feel of
+using `module('id')` are larger benefits than trying to avoid `module`.
 
 ## Library construction
 
