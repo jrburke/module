@@ -200,11 +200,10 @@ What I envision happens in the engine when `paint` is referenced: it results in
 a call similar to `(System.get('brush').paint)`.
 
 So mutable exports for the existing ES module proposal could be polyfilled today
-by using an AST parser, like Esprima, to replace all references fo `paint`
-(except for the initial import), with `(System.get('brush').paint)`, then
-evaluate the code.
+by using an AST parser, like Esprima, to replace all uses of `paint` with
+`(System.get('brush').paint)`, then evaluate the code.
 
-This view sees a mutable export reference similar to a getter.
+A mutable export reference can be seen somewhat analagous to a getter.
 
 For this `module` proposal, this is same mechanism would be used, except using
 a module API with destructuring:
