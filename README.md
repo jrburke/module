@@ -422,4 +422,8 @@ TODOS:
 
 * Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
 
+* Generate useful errors with codes that can be looked up for fix advice.
+
+* a "debug" mode that allows printing out dependency tree as a data structure?
+
 * How best to do load cleanups. Given async nature, and code could grab a reference to a load in the middle of something like the pipeline that survives across async calls, need to cautious about cleaning up. Maybe it is enough to do it once all module loading has been known to complete for the current cycle, since the module cache would be warm by then.

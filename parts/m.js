@@ -62,6 +62,15 @@ var module, ModuleLoader;
     });
   }
 
+  // TODO: probably need to do something different here. For now,
+  // at least throw to indicate an error that may be swallowed
+  // by a promise flow.
+  function globalErrorHandler(err) {
+    setTimeout(function() {
+      throw err;
+    });
+  }
+
   function createFetch(loader, load) {
     var normalizedName = load.name,
         address = load.address;
@@ -434,6 +443,7 @@ var module, ModuleLoader;
     // Sytem.load('a', 'b', 'c', function (a, b, c){}, function(err){});
     load: function () {
       var callback, errback,
+          deps = [],
           args = slice(arguments);
 
       if (typeof args[args.length - 1] === 'function') {
@@ -444,19 +454,55 @@ var module, ModuleLoader;
         callback = args.pop();
       }
 
+      // Guard against duplicate IDs being requested, just complicates
+      // code later, results in more array traversals, and is likely
+      args.forEach(function(name, i) {
+        var index = args.indexOf(name);
+        if (index !== -1 && index !== i) {
+          throw new Error('Duplicate dependencies to load are not allowed');
+        }
+      });
+
+      var normalizedArgs,
+          uniqueNames = [];
+
       var p = prim.all(args.map(function(name) {
-        return this._pipeline(this._normIfReferer(name));
+        return this.normalize(name, this._refererName);
       }.bind(this)))
+      .then(function(nArgs) {
+        normalizedArgs = nArgs;
+        // Get unique names, and only depend on them. It is possible,
+        // after normalization, that two different IDs do map to the
+        // same normalized module ID given loader config. So, this is
+        // not an error condition, but only want the dependency tree
+        // to be based on unique values.
+        var pipelinePromises = [];
+        normalizedArgs.forEach(function(normalizedName) {
+          if (uniqueNames.indexOf(normalizedName) === -1) {
+            uniqueNames.push(normalizedName);
+            pipelinePromises.push(this._pipeline(normalizedName));
+          }
+        }.bind(this));
+
+        return prim.all(pipelinePromises);
+      }.bind(this))
       .then(function(moduleDefArray) {
-        var exportArray = moduleDefArray.map(function(def) {
-          return def.exportValue;
+        var finalExports = [];
+
+        // Expand unique exports to the final set of callback arguments.
+        normalizedArgs.forEach(function(normalizedName) {
+          var defIndex = uniqueNames.indexOf(normalizedName);
+          finalExports.push(moduleDefArray[defIndex].exportValue);
         });
-        callback.apply(null, exportArray);
-        return exportArray;
+
+        callback.apply(null, finalExports);
+        return finalExports;
       });
 
       if (errback) {
         p.catch(errback);
+      } else {
+        p.catch(globalErrorHandler);
       }
 
       return p;
