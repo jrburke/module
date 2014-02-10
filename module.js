@@ -4336,6 +4336,34 @@ var parse;
     });
   }
 
+  // An intermediary for a dependency. By using this intermediary,
+  // cycles can be broken without the actual dependency module
+  // value promise (pipelinePromise) from being resolved.
+  function DepResolver(name, pipelinePromise) {
+    this.name = name;
+    this.pipelinePromise = pipelinePromise;
+
+    this.p = new Promise(function(resolve, reject) {
+      this.resolve = resolve;
+      this.reject = reject;
+    }.bind(this));
+
+    // Could get double fulfillment, but promises hide
+    // this case, only allow one resolution and discard
+    // other fulfillment requests.
+    pipelinePromise.then(this.resolve, this.reject);
+  }
+
+  DepResolver.prototype = {
+    resolveForCycle: function(loaderInstance) {
+      // Create a placeholder for the module value if needed.
+      if (!hasProp(loaderInstance._modules, this.name)) {
+        loaderInstance._modules[this.name] = {};
+      }
+      this.resolve();
+    }
+  };
+
   function createFetch(loader, load) {
     var normalizedName = load.name,
         address = load.address;
@@ -4352,6 +4380,7 @@ var parse;
 
           var parseResult = parse.fromBody(source, 'module');
           load.parseResult = parseResult;
+          load.deps = parseResult.deps;
 
           // If it looks like a module body, hten wrap,
           // in a module body function wrapper. Otherwise,
@@ -4439,9 +4468,19 @@ var parse;
       return loader.normalize(dep, loader._refererName);
     }))
     .then(function(normalizedDeps) {
+      load._depResolvers = {};
+
+      // Got define function and dependencies now, so
+      // load is considered fully registered.
+      loader._registeredCounter -= 1;
+
       // load dependencies
       Promise.all(normalizedDeps.map(function(dep) {
-        return loader._pipeline(dep);
+        // Create an intermediary for the dependency, to allow
+        // for cycle resolution if the dependency tree gets stuck.
+        var depResolver = new DepResolver(dep, loader._pipeline(dep));
+        load._depResolvers[dep] = depResolver;
+        return depResolver.p;
       })).then(function() {
         // create module var and call factory
         // TODO: is this the right thing to create?
@@ -4480,13 +4519,17 @@ var parse;
           // Get final module value
           var exportValue = module._export;
 
-          var moduleDef = loader._modules[load.name] = {
-            exportValue: exportValue
-          };
+          // Because of cycles, may have a module entry, but the
+          // value may not have been set yet.
+          var moduleDef = loader._modules[load.name] || {};
+          moduleDef.exportValue = exportValue;
+          loader._modules[load.name] = moduleDef;
 
-          // Set _modules object, to include .export
-          // resolve the final promise on the load
-          load._moduleResolve(moduleDef);
+          // Only trigger load module resolution if not already
+          // set because of a cycle.
+          if (!load._moduleResolved) {
+            load._moduleResolve(moduleDef);
+          }
 
           // TODO: clean up the load, remove it so can be garbage collected,
           // by calling then on the whenFulfilled thing. Is this safe to do
@@ -4531,7 +4574,9 @@ var parse;
     instance._refererName = options.refererName;
     instance._modules = {};
     instance._loads = {};
+    instance._registeredCounter = 0;
     instance._fetches = {};
+    instance._dynaLoads = [];
 
     function createLoad(normalizedName, parentLoad) {
       var load = {
@@ -4543,19 +4588,20 @@ var parse;
       };
 
       load.whenFulfilled = new Promise(function(resolve, reject) {
-          load._moduleResolve = function(value) {
-            load._moduleResolved = true;
-            resolve(value);
-          };
+        load._moduleResolve = function(value) {
+          load._moduleResolved = true;
+          resolve(value);
+        };
 
-          load.reject = reject;
-        });
+        load.reject = reject;
+      });
 
       if (parentLoad) {
         load._parentLoad = parentLoad;
         parentLoad.whenFulfilled.then(load._moduleResolve);
       }
 
+      instance._registeredCounter += 1;
       return (instance._loads[normalizedName] = load);
     }
 
@@ -4566,6 +4612,19 @@ var parse;
         load = createLoad(normalizedName);
       }
       return load;
+    };
+
+    // Gets the load from this or parent instances
+    instance._getLoad = function(name) {
+      if (hasProp(instance._loads, name)) {
+        return instance._loads[name];
+      } else if (instance._parent) {
+        // Store a local load for it, now that one module
+        // in this instance is bound to it, all should.
+        // This also ensures a local _modules entry later
+        // for all modules in this loader instance
+        return instance._parent._getLoad(name);
+      }
     };
 
     instance._getLoadOrCreateFromTop = function(name) {
@@ -4645,7 +4704,7 @@ var parse;
     },
 
     // START module lifecycle events
-    normalize: function(name, refererName, refererAddress) {
+    normalize: function(name /*, refererName, refererAddress */) {
       return name;
     },
 
@@ -4708,7 +4767,6 @@ var parse;
     // Sytem.load('a', 'b', 'c', function (a, b, c){}, function(err){});
     load: function () {
       var callback, errback,
-          deps = [],
           args = slice(arguments);
 
       if (typeof args[args.length - 1] === 'function') {
@@ -4749,10 +4807,23 @@ var parse;
           }
         }.bind(this));
 
+        // Track top level loads, used to trace for cycles
+        p.deps = uniqueNames;
+        this._dynaLoads.push(p);
+        this._setWatch();
+
         return prim.all(pipelinePromises);
       }.bind(this))
       .then(function(moduleDefArray) {
         var finalExports = [];
+
+        // Clear this API call from the track of dynaLoads,
+        // no longer an input for cycle breaking.
+        this._dynaLoads.splice(this._dynaLoads.indexOf(p), 1);
+        if (!this._dynaLoads.length) {
+          clearTimeout(this._watchId);
+          this._watchId = 0;
+        }
 
         // Expand unique exports to the final set of callback arguments.
         normalizedArgs.forEach(function(normalizedName) {
@@ -4762,7 +4833,7 @@ var parse;
 
         callback.apply(null, finalExports);
         return finalExports;
-      });
+      }.bind(this));
 
       if (errback) {
         p.catch(errback);
@@ -4772,6 +4843,95 @@ var parse;
 
       return p;
     },
+
+    _setWatch: function() {
+      // The choice of this timeout is arbitrary. Do not wan it
+      // to fire too frequently given all the async promises,
+      // but do not want it to go too long.
+      this._watchId = setTimeout(this._watch.bind(this), 25);
+    },
+
+    // Watch for error timeouts, cycles
+    _watch: function() {
+      this._watchId = 0;
+      // Do not bother if modules are still registering.
+      if (this._registeredCounter) {
+        this._setWatch();
+        return;
+      }
+
+      // Scan for timeouts, but only if a wait interval is set.
+      if (this._waitInterval) {
+        var now = Date.now(),
+            hasExpiredLoads = false,
+            waitInterval = this._waitInterval;
+
+        this._loads.forEach(function(load) {
+          if (!load._moduleResolved &&
+              load._startTime + waitInterval < now) {
+            load.reject(new Error('module timeout: ' + load.name));
+          }
+        });
+
+        // Since some expired, then bail. This may be too
+        // coarse-grained of an action to take.
+        if (hasExpiredLoads) {
+          return;
+        }
+      }
+
+      // Break cycles. Go backwards in the dynaLoads since as
+      // they are resolved, they are removed from the dynaLoads
+      // array. While unlikely they will remove themselves during
+      // this for loop given the async promise resolution, just
+      // doing it to be safe.
+      for (var i = this._dynaLoads.length - 1; i > -1; i--) {
+        this._breakCycle(this._dynaLoads[i], {}, {});
+      }
+
+      // If still have some dynamic loads waiting, keep periodically
+      // checking.
+      if (this._dynaLoads.length) {
+        this._setWatch();
+      }
+    },
+
+
+    _breakCycle: function(load, traced, processed) {
+      var name = load.name;
+
+      if (name) {
+        traced[name] = true;
+      }
+
+      if (!load._moduleResolved && load.deps.length) {
+        load.deps.forEach(function (depName) {
+          var depLoad = this._getLoad(depName);
+
+          if (depLoad && !depLoad._moduleResolved && !processed[depName]) {
+            if (hasProp(traced, depName)) {
+              // Fake the resolution of this dependency for the module,
+              // by asking the DepResolver to pretend it is done. Only
+              // want to pretend the dependency is done for this cycle
+              // though. Other modules depending on this dependency
+              // should get the opportunity to get the real module value
+              // once this specific cycle is resolved.
+              load._depResolvers[depName].resolveForCycle(load._loader);
+            } else {
+              this._breakCycle(depLoad, traced, processed);
+            }
+          }
+        }.bind(this));
+      }
+
+      if (name) {
+        processed[name] = true;
+      }
+    },
+/*
+todo:
+waitInterval config
+ */
 
     eval: function(sourceText) {
       return eval(sourceText);
@@ -4792,8 +4952,7 @@ var parse;
     },
 
     _hasNormalized: function(normalizedName) {
-      return hasProp(this._modules, normalizedName) &&
-             hasProp(this._modules[normalizedName], 'exportValue');
+      return hasProp(this._modules, normalizedName);
     },
 
     delete: function(name) {

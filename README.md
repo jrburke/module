@@ -416,9 +416,11 @@ Notes
 
 TODOS:
 
-* Implement cycle breaker, only do function body transform to `(module('id'))` if a module is in a cycle.
+* Make cycle breaking fancier: do function body transform to `(module('id'))` if a module is in a cycle? Do a define property if an export property uses it?
 
-* need a timeout on loads, since waiting on promises for lifecycle, need to shut down if taking too long. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs?
+* does `module.export.foo = ` support make sense?
+
+* Wire up waitInterval timeouts. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs? Does the DepResolver now help with that indirection?
 
 * Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
 
