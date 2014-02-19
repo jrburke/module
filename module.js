@@ -1,4 +1,4 @@
-var module, ModuleLoader;
+var module;
 (function() {
   'use strict';
 
@@ -4485,7 +4485,7 @@ var parse;
         // create module var and call factory
         // TODO: is this the right thing to create?
         // What about custom hooks, they should be passed down?
-        var module = new ModuleLoader({
+        var module = new Loader({
           parent: loader,
           refererName: load.name,
           _knownLocalModules: parseResult.localModules
@@ -4543,7 +4543,7 @@ var parse;
     .catch(load.reject);
   }
 
-  ModuleLoader = function ModuleLoader(options) {
+  function Loader(options) {
     options = options || {};
 
     function module(name) {
@@ -4561,7 +4561,7 @@ var parse;
 
     var instance = module;
 
-    mix(module, ModuleLoader.prototype, true);
+    mix(module, Loader.prototype, true);
 
     if (options.createHooks) {
       var hooks = options.createHooks(instance);
@@ -4689,8 +4689,8 @@ var parse;
   };
 
   // Specified as a prototype, but these values are just mixed in
-  // to the ModuleLoader instance function.
-  ModuleLoader.prototype = {
+  // to the Loader instance function.
+  Loader.prototype = {
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
                        this.normalize(name, this._refererName) :
@@ -4764,8 +4764,8 @@ var parse;
     },
 
     // Variadic:
-    // Sytem.load('a', 'b', 'c', function (a, b, c){}, function(err){});
-    load: function () {
+    // module.use('a', 'b', 'c', function (a, b, c){}, function(err){});
+    use: function () {
       var callback, errback,
           args = slice(arguments);
 
@@ -4977,7 +4977,7 @@ waitInterval config
     }
   };
 
-  module = new ModuleLoader();
+  module = new Loader();
   var topModule = module;
   // debug stuff
   module._allLoaders = [];

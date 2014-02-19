@@ -1,4 +1,4 @@
-module.load('a', 'b', function(a, b) {
+module.use('a', 'b', function(a, b) {
   doh.register(
     'baseSimple',
     [

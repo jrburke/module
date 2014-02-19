@@ -1,4 +1,4 @@
-module.load('two', 'funcTwo', 'funcThree', function(two, funcTwo, funcThree) {
+module.use('two', 'funcTwo', 'funcThree', function(two, funcTwo, funcThree) {
 
   var args = two.doSomething();
   doh.register(
