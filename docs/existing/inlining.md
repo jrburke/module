@@ -36,6 +36,13 @@ module 'id' (loader) {
 }
 ```
 
+The details on which module-specific or top-most loader would see or store the
+modules is described in [this repo's local module section](https://github.com/jrburke/module/blob/master/README.md#multiple-local-modules).
+
+But basically, local modules are only seen in the module-specific loader, and
+if a module is asked for in that set, parent loaders are asked for it, and if
+none have it, the top-most loader does the load for that module.
+
 ### Benefits
 
 * Does not require extra HTML script tag variants. If an import happens top level, just throw (with a very specific error message mentioning how to fix, or a link that explains why).
