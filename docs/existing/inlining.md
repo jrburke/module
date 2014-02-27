@@ -32,14 +32,14 @@ module 'id' (loader) {
 
   // OR
   //using local module as a named export:
-  exportlocal something 'localid'
+  exportlocal something 'localid';
 }
 ```
 
 The details on which module-specific or top-most loader would see or store the
-modules is described in [this repo's local module section](https://github.com/jrburke/module/blob/master/README.md#multiple-local-modules).
+modules is described in [this repo's local module section](https://github.com/jrburke/module/blob/master/README.md#multiple-local-modules), but a summary:
 
-But basically, local modules are only seen in the module-specific loader, and
+Local modules are only seen in the module-specific loader, and
 if a module is asked for in that set, parent loaders are asked for it, and if
 none have it, the top-most loader does the load for that module.
 
@@ -98,8 +98,7 @@ For the language keyword-based module design, this may be difficult to do: the l
 However, with an API-based `module` design in this repo, it would just be
 `testLoader.define('dataSource', function(module) {})`.
 
-But to try to bridge that gap, give some way to specify the loader target for
-the module definition:
+For give some way to specify the loader target for the module definition:
 
 ```javascript
 var testLoader = new ModuleLoader({});
@@ -113,5 +112,5 @@ module 'dataSource' in testLoader (loader) {
 
 My impression was that it was too hard to get that sorted with the current language keyword approach, so I thought an API approach instead of language keywords would have avoided those issues.
 
-Maybe not though? In either case, a system with inline modules is simpler than one without inline modules. That seems worth taking more time to work out inlining and more time effective instead of needing multiple other standards groups to fill in the gaps to get the whole story sorted.
+Maybe not though? In either case, a system with inline modules is simpler than one without inline modules. That seems worth taking the time to work out inlining instead of needing multiple other groups (HTML, package URLs, custom loader userland agreement) to fill in the gaps.
 
