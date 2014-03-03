@@ -219,6 +219,15 @@ In a polyfill, this would work by replacing the `paint` reference in the AST
 with `(module('brush').paint)`, and rewriting the destructure to just be
 `module('brush')`.
 
+If it was hard to specify this mutable slot in this way, it could be delayed
+until a later ES version: cycles happen but they are rare, and the module system
+could instead give very informative, targeted error messages on how to fix the
+cycle for now.
+
+Since the module API allows placement of module gets anywhere in the source,
+there are easy ways to solve cycles in the meantime by the user choosing to
+do the `module('brush')` substitutions themselves.
+
 ## `module` API description
 
 The `module` API was chosen such that the API names have a declarative feel, to
@@ -408,6 +417,7 @@ Tests to write:
 
 * return a promise for a module value, make sure that works, promise unwrapping not in the way.
 * return a promise for a setFromLocal case too, promise unwrapping not in the way.
+* test that uses local modules top level and module.use().
 * test interop with normal scripts that do globals.
 
 Notes
@@ -416,17 +426,29 @@ Notes
 
 TODOS:
 
-* Make cycle breaking fancier: do function body transform to `(module('id'))` if a module is in a cycle? Do a define property if an export property uses it?
+* Error APIs going to descriptions of how to fix. Use first for cycles.
 
 * does `module.export.foo = ` support make sense?
-
-* duality of System.get() import, for things like dev tools command line fetch/inspection of a module.
 
 * declarative config easier for tools to read, for autocomplete.
 
 * declarative config, how to surface. module.top.config, module.top.config.add()?
 
-* create new module.Loader(), ability to reuse config from another loader. Also, be able to reuse module table? No, explicit population can be done by iterating and adding what is needed. Need iteration and event (when added) apis? Security mode.
+* loader.introspect(function(on) {
+  on('defined', function(module) {});
+});
+
+* new module.Loader({
+  constrain: true,
+
+  whitelist: {
+    top: true,
+    config: true,
+  }
+});
+
+
+* create new module.Loader(), ability to reuse config from another loader. Also, be able to reuse module table? No, explicit population can be done by iterating and adding what is needed. Need iteration and event (when added) apis, security mode.
 
 * specify module.uri for nested module, plus relative module IDs,
 for it.
