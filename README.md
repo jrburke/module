@@ -1,6 +1,10 @@
 # module
 
-This is an experiment for an ECMAScript (ES) module proposal.
+This is an experiment around ECMAScript (ES) modules. Not going to go anywhere,
+just an experiment.
+
+For a discussion of module inlining in the context of the existing ES
+syntax, instead of this experiment, see [existing/inlining](https://github.com/jrburke/module/blob/master/docs/existing/inlining.md).
 
 It builds on the the ModuleLoader API from the current ES proposal, along with
 some other work from the ES module effort so far, but uses a module API instead
@@ -224,9 +228,11 @@ until a later ES version: cycles happen but they are rare, and the module system
 could instead give very informative, targeted error messages on how to fix the
 cycle for now.
 
-Since the module API allows placement of module gets anywhere in the source,
-there are easy ways to solve cycles in the meantime by the user choosing to
-do the `module('brush')` substitutions themselves.
+Since the module API allows placement of `module(StringLiteral)` anywhere in the
+module body (they are still found by static analysis and loaded/executed before
+current module body is executed), there are easy ways to solve cycles in the
+meantime by the user choosing to do the `module('brush')` substitutions
+themselves.
 
 ## `module` API description
 
@@ -427,6 +433,9 @@ Notes
 TODOS:
 
 * Error APIs going to descriptions of how to fix. Use first for cycles.
+
+* add in loader.config() for top level module objects, use basic AMD config
+as baseline.
 
 * does `module.export.foo = ` support make sense?
 

@@ -1,4 +1,4 @@
-## Module inlining.
+## Module inlining
 
 A sketch of module inlining using existing language keyword approach that also support a module-specific `loader` object that holds module-specific data and allows relative ID resolving of any modules fetched locally.
 
