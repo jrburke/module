@@ -23,7 +23,7 @@ doh.register(
         mangled('a');
         mangled('a');
         mangled('b');
-        mangled.export({});
+        mangled.export = {};
       });
 
       t.is('a', results.deps[0]);
@@ -47,7 +47,7 @@ doh.register(
 
         module('g');
 
-        module.export({});
+        module.export = {};
       });
 
       t.is('d', results.deps[0]);
@@ -59,7 +59,7 @@ doh.register(
       t.is(2, results.localModules.length);
 
       // dependency in an object literal
-      var text = 'module.export({ name: \'a\', b: module(\'b\') });';
+      var text = 'module.export = { name: \'a\', b: module(\'b\') };';
       results = parse.fromBody(text, 'module');
 
       t.is('b', results.deps[0]);

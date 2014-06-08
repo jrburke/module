@@ -7,4 +7,4 @@ Two.prototype.oneName = function () {
   return this.one.getName();
 };
 
-module.export(Two);
+module.export = Two;

@@ -7,4 +7,4 @@ One.prototype.getName = function () {
   return this.name + inst.name;
 };
 
-module.export(One);
+module.export = One;

@@ -19,6 +19,10 @@ var module;
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
 
+  // Easy implementation solution for exportFromLocal for now, but will move
+  // to a separate storage area for that factory function later to avoid this.
+  var specialExportLocalName = '__@exportFromLocal';
+
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
       return hasOwn.call(obj, prop);
@@ -233,11 +237,10 @@ var module;
         }
 
         Promise.cast().then(function () {
-          if (hasProp(module, '_exportLocal')) {
+          if (hasProp(module, '_usesExportFromLocal')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
-            var localName = module._exportLocal,
-                load = module._loads[localName];
+            var load = module._loads[specialExportLocalName];
 
             // Enable the local module, since needed to set
             // current module export
@@ -312,6 +315,12 @@ var module;
     instance._registeredCounter = 0;
     instance._fetches = {};
     instance._dynaLoads = [];
+
+    // Set up top
+    instance.top = instance._parent ? instance._parent.top : instance;
+
+    // default export object
+    instance._export = {};
 
     function createLoad(normalizedName, parentLoad) {
       var load = {
@@ -464,21 +473,31 @@ var module;
     // END module lifecycle events
 
     // START declarative API
-    export: function(value) {
-      if (hasProp(this, '_exportLocal')) {
-        throw new Error('module.exportLocal() already called');
+    set export (value) {
+      if (hasProp(this, '_usesExportFromLocal')) {
+        throw new Error('module.exportFromLocal() already called');
       }
+
+      this._hasSetExport = true;
 
       // TODO: throw if called after module is considered "defined"
       this._export = value;
     },
-    exportLocal: function(localName) {
-      if (hasProp(this, '_export')) {
-        throw new Error('module.export() already called');
+    get export () {
+      return this._export;
+    },
+
+    exportFromLocal: function(fn) {
+      if (hasProp(this, '_hasSetExport')) {
+        throw new Error('module.export already set');
       }
 
+      // Shortcut for now, there is a TODO to create dedicated
+      // slot vs using a special name.
+      this.define(specialExportLocalName, fn);
+
       // TODO: throw if called after module is considered "defined"
-      this._exportLocal = localName;
+      this._usesExportFromLocal = true;
     },
     // END declarative API
 

@@ -6,4 +6,4 @@ four.suffix = function () {
   return module('funcThree').suffix();
 };
 
-module.export(four);
+module.export = four;

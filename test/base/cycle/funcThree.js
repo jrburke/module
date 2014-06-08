@@ -6,4 +6,4 @@ Three.suffix = function () {
   return 'THREE_SUFFIX';
 };
 
-module.export(Three);
+module.export = Three;

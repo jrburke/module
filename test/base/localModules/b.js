@@ -1,3 +1,3 @@
-module.export({
+module.export = {
   name: 'b'
-});
+};

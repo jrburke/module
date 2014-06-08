@@ -54,6 +54,14 @@ var parse;
            node.callee.property.name === propertyName;
   }
 
+  function matchesMemberExpression(node, objectName, propertyName) {
+    return node.type === 'MemberExpression' && node.object &&
+           node.object.type === 'Identifier' &&
+           node.object.name === objectName && node.property &&
+           node.property.type === 'Identifier' &&
+           node.property.name === propertyName;
+  }
+
   parse = {
     traverse: traverse,
     traverseBroad: traverseBroad,
@@ -67,11 +75,11 @@ var parse;
     // Parses a possible module body for module API usage:
     // module(StringLiteral)
     // module.define()
-    // module.exportLocal()
+    // module.exportFromLocal()
     fromBody: function (bodyText, apiName) {
       // Convert to string, add parens around it so valid esprima
       // parse form.
-      var exportLocal,
+      var usesExportFromLocal = false,
           usesExport = false,
           astRoot = esprima.parse(bodyText),
           deps = [],
@@ -108,16 +116,16 @@ var parse;
           return false;
         }
 
-        // Look for module.exportLocal, since it indicates this code is
+        // Look for module.exportFromLocal, since it indicates this code is
         // a module, and needs a module function wrapping.
-        if (matchesCallExpression(node, apiName, 'exportLocal')) {
-          exportLocal = node.arguments[0].value;
+        if (matchesCallExpression(node, apiName, 'exportFromLocal')) {
+          usesExportFromLocal = true;
           return false;
         }
 
         // Look for module.export, since it indicates this code is
         // a module, and needs a module function wrapping.
-        if (matchesCallExpression(node, apiName, 'export')) {
+        if (matchesMemberExpression(node, apiName, 'export')) {
           // uses set, and continue parsing lower, since set
           // usage could use get inside to construct the export
           usesExport = true;
@@ -127,9 +135,8 @@ var parse;
       return {
         deps: deps,
         localModules: localModules,
-        exportLocal: exportLocal,
-        // If have deps or a exportLocal, this is a module body.
-        isModule: !!(deps.length || exportLocal || usesExport)
+        usesExportFromLocal: usesExportFromLocal,
+        isModule: !!(deps.length || usesExportFromLocal || usesExport)
       };
     }
   };

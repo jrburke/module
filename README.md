@@ -110,19 +110,19 @@ var c = module('c');
 module.exportMacro('unless', {/* macro definition here*/});
 
 // export module value that is used at runtime.
-module.export({
+module.export = {
   name: 'a'
-});
+};
 
 /***** module 'b' ******/
 // b wants to use a macro from 'a'
 module.useMacro('a', 'unless');
 
 // export module value for b
-module.export(function b(x) {
+module.export = function b(x) {
   return true unless x > 42;
   return false;
-});
+};
 ```
 
 The reader parses 'a' and sees the module APIs in play, and
@@ -253,8 +253,12 @@ The module system parses the text of a module for module API use, then loads and
 executes dependencies before executing the module.
 
 Dependencies are specified by using `module(StringLiteral)`. A module sets the
-export using `module.export(value)`, where `value` is the export value.
+export using `module.export = value`, where `value` is the export value.
 It must be set before the end of the module body execution.
+
+Alternatively, module.export is originally set to an empty object, which can
+be used to attach properties for the export value,
+`module.export.route = function() {}`.
 
 ```javascript
 // A module that depends on two other modules
@@ -265,10 +269,10 @@ var someData = {};
 
 pixelate(someData);
 
-module.export({
+module.export = {
   paint: paint,
   pixelate: pixelate
-});
+};
 ```
 
 ### Multiple, local modules
@@ -278,18 +282,18 @@ the module body is stored in a function.
 
 ```javascript
 module.define('colorize', function(module) {
-  module.export(function colorize() {});
+  module.export = function colorize() {};
 });
 
 module.define('blur', function(module) {
-  module.export(function blur() {});
+  module.export = function blur() {};
 });
 
 module.define('effects', function(module) {
-  module.set({
+  module.export = {
     colorize: module('colorize'),
     blur: module('blur')
-  })
+  };
 });
 ```
 
@@ -308,12 +312,12 @@ need dynamically loaded dependencies), `module(StringLiteral)` in the same
 module cannot be used to grab a local module and use it in its export.
 
 Instead, there should be a local module that does a `module.define()` to set up
-the desired export, and `module.exportLocal()` should be used to
-specify what local module to use for the current module export.
+the desired export, and `module.exportFromLocal()` should be used to
+specify the factory function that will give the final module value.
 
 ```javascript
 module.define('colorize', function(module) {
-  module.export(function colorize() {});
+  module.export = function colorize() {};
 });
 
 module.define('blur', function(module) {
@@ -321,10 +325,10 @@ module.define('blur', function(module) {
 });
 
 module.define('effects', function(module) {
-  module.export({
+  module.export = {
     colorize: module('colorize'),
     blur: module('blur')
-  })
+  };
 });
 
 // THE FOLLOWING COMMENTED OUT CODE WOULD FAIL because
@@ -334,22 +338,21 @@ module.define('effects', function(module) {
 // var effects = module('effects');
 // var $ = module('jquery');
 
-// THIS WILL WORK, define a module that does get those dependencies,
-// and then use `module.exportLocal()` to use that module value as
+// THIS WILL WORK, since the factory function can be called once
+// all dependencies are met.
+// and then use `module.exportFromLocal()` to use that module value as
 // the export value.
-module.define('publicExport', function(module) {
+module.exportFromLocal(function(module) {
   var effects = module('effects');
   var $ = module('jquery');
-  module.export(function applyEffectsToDom(selector) {
+  module.export = function applyEffectsToDom(selector) {
     return effects.colorize(effects.blur($(selector)[0]));
-  });
+  };
 });
-
-module.exportLocal('publicExport');
 ```
 
 If a module does not need a local module for immediate module export, then
-`module.exportLocal` does not need to be used.
+`module.exportFromLocal` does not need to be used.
 
 Additionally, if this is not a module body, but just a script in an HTML script
 tag, `module.use()` can be used to get access to these local modules.
@@ -422,26 +425,23 @@ This section is just a collection of notes/todos, just for repo developer use.
 Tests to write:
 
 * return a promise for a module value, make sure that works, promise unwrapping not in the way.
-* return a promise for a setFromLocal case too, promise unwrapping not in the way.
+* return a promise for a exportFromLocal case too, promise unwrapping not in the way.
 * test that uses local modules top level and module.use().
 * test interop with normal scripts that do globals.
 
 Notes
 
-* I prefer `return` to set module export, instead of module.export(), as it more correctly enforces "end of factory function means export is considered set" but right now JS grammar does not consider a top level `return` as valid.
+* I prefer `return` to set module export, instead of module.export, as it more correctly enforces "end of factory function means export is considered set" but right now JS grammar does not consider a top level `return` as valid.
 
 TODOS:
 
-* Error APIs going to descriptions of how to fix. Use first for cycles.
+* exportLocal to exportFormLocal
 
-* add in loader.config() for top level module objects, use basic AMD config
-as baseline.
+* fix cycle test
 
-* does `module.export.foo = ` support make sense?
+* declarative config easier for tools to read, for autocomplete. add in loader.config() for top level module objects only, using AMD-inspired config as baseline. Accessible via module.top.config();
 
-* declarative config easier for tools to read, for autocomplete.
-
-* declarative config, how to surface. module.top.config, module.top.config.add()?
+* Error APIs giving URLs to descriptions of how to fix. Use first for cycles.
 
 * loader.introspect(function(on) {
   on('defined', function(module) {});
@@ -467,6 +467,8 @@ for it.
 * Wire up waitInterval timeouts. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs? Does the DepResolver now help with that indirection?
 
 * Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
+
+* Store exportFromLocal factory in a special slot instead of using a special name.
 
 * Generate useful errors with codes that can be looked up for fix advice.
 

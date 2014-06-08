@@ -1,6 +1,6 @@
-module.export({
+module.export = {
   size: 'large',
   doSomething: function() {
     return module('two');
   }
-});
+};
