@@ -205,6 +205,8 @@ TODOS:
 
 * Error APIs giving URLs to descriptions of how to fix. Use first for cycles.
 
+* examples of using real libraries today, Backbone, fs, underscore.
+
 * loader.introspect(function(on) {
   on('defined', function(module) {});
 });
