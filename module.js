@@ -4270,6 +4270,7 @@ var parse;
           // uses set, and continue parsing lower, since set
           // usage could use get inside to construct the export
           usesExport = true;
+          return false;
         }
       });
 
@@ -4287,9 +4288,11 @@ var parse;
 
 
   var Promise = prim,
-      aslice = Array.prototype.slice;
+      aslice = Array.prototype.slice,
+      _allLoaders = [];
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
+  var publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
 
   // Easy implementation solution for exportFromLocal for now, but will move
   // to a separate storage area for that factory function later to avoid this.
@@ -4348,7 +4351,7 @@ var parse;
   }
 
   // An intermediary for a dependency. By using this intermediary,
-  // cycles can be broken without the actual dependency module
+  // cycles can be broken without the actual dependency
   // value promise (pipelinePromise) from being resolved.
   function DepResolver(name, pipelinePromise) {
     this.name = name;
@@ -4367,44 +4370,54 @@ var parse;
 
   DepResolver.prototype = {
     resolveForCycle: function(loaderInstance) {
-      // Create a placeholder for the module value if needed.
+      // Create a placeholder for the value if needed.
       if (!hasProp(loaderInstance._modules, this.name)) {
-        loaderInstance._modules[this.name] = {};
+console.log('DEPRESOLVER: ' + this.name);
+        loaderInstance._modules[this.name] = {
+          exportValue: loaderInstance._entries[this.name]._loader._export
+        };
       }
       this.resolve();
     }
   };
 
-  function createFetch(loader, load) {
-    var normalizedName = load.name,
-        address = load.address;
+  function createFetch(loader, entry) {
+    var normalizedName = entry.name,
+        address = entry.address;
 
     var fetch = new Promise(function(resolve, reject) {
-      var load = loader._loads[normalizedName];
+      var entry = loader._entries[normalizedName];
 
-      Promise.cast(loader.fetch(load))
+      Promise.cast(loader.fetch(entry))
         .then(function(source) {
-          load.source = source;
-          return loader.translate(load);
+          entry.source = source;
+          return loader.translate(entry);
         })
         .then(function(source) {
+          try {
+            var parseResult = parse.fromBody(source, 'module');
+            entry.parseResult = parseResult;
+            entry.deps = parseResult.deps;
 
-          var parseResult = parse.fromBody(source, 'module');
-          load.parseResult = parseResult;
-          load.deps = parseResult.deps;
+            // If it looks like a module body, then wrap
+            // in a module body function wrapper. Otherwise,
+            // treat it as a normal non-module script.
+            if (parseResult.isModule) {
+              source = 'module.define(\'' + normalizedName +
+                       '\', function(module) {\n' +
+                       source +
+                       '\n});';
+            }
+            source += '\r\n//# sourceURL=' + address;
 
-          // If it looks like a module body, hten wrap,
-          // in a module body function wrapper. Otherwise,
-          // treat it as a normal non-module script.
-          if (parseResult.isModule) {
-            source = 'module.define(\'' + normalizedName +
-                     '\', function(module) {\n' +
-                     source +
-                     '\n});';
+            loader.eval(source);
+          } catch(e) {
+            var err = new Error('Parse/eval error for "' + entry.name +
+                                '": ' + e);
+            err.originalError = e;
+            throw err;
           }
-          source += '\r\n//# sourceURL=' + address;
 
-          loader.eval(source);
           resolve();
         })
         .catch(reject);
@@ -4413,58 +4426,60 @@ var parse;
     return (loader._fetches[address] = fetch);
   }
 
-  function enable(load) {
-    if (load._parentLoad) {
-      return enable(load._parentLoad);
+  function enable(entry) {
+    if (entry._parentEntry) {
+      return enable(entry._parentEntry);
     }
 
-    var loader = load._loader;
+    var loader = entry._loader;
 
-    load._callEnableOnDefine = true;
+    entry._callEnableOnDefine = true;
 
-    if (!load._registered) {
-      load._fetching = true;
-      Promise.cast(loader.locate(load))
+    if (!entry._registered) {
+      entry._fetching = true;
+      Promise.cast(loader.locate(entry))
         .then(function(address) {
-          load.address = address;
+          entry.address = address;
 
           var fetch = loader._getFetch(address);
           if (!fetch) {
-            fetch = createFetch(loader, load);
+            fetch = createFetch(loader, entry);
           }
 
           return fetch.then(function() {
             // Need to call _registered here because loaded thing
             // may just be a script that does not call module.define()
-            if (!load.parseResult && !load.parseResult.isModule) {
-              load._registered = true;
+            if (!entry.parseResult && !entry.parseResult.isModule) {
+              entry._registered = true;
             }
-            load._fetching = false;
+            entry._fetching = false;
           });
         })
         .then(function(){
-          enable(load);
+          enable(entry);
         })
-        .catch(load.reject);
+        .catch(entry.reject);
       return;
     }
 
-    if (load._fetching || load._enabled) {
+    if (entry._fetching || entry._enabled) {
       return;
     }
-    load._enabled = true;
-    load._callEnableOnDefine = false;
+    entry._enabled = true;
+    entry._callEnableOnDefine = false;
 
     // Parse for dependencies in the factory, and any module.define
     // calls for local modules.
-    var parseResult = load.parseResult;
+    var parseResult = entry.parseResult;
 
-    if (!parseResult && load._factory) {
+    if (!parseResult && entry._factory) {
       try {
-        parseResult = parse.fromFactory(load._factory);
-        load.parseResult = parseResult;
+        parseResult = parse.fromFactory(entry._factory);
+        entry.parseResult = parseResult;
       } catch (e) {
-        return load.reject(e);
+        var err = new Error('Parse error for "' + entry.name + '": ' + e);
+        err.originalError = e;
+        return entry.reject(e);
       }
     }
 
@@ -4479,10 +4494,10 @@ var parse;
       return loader.normalize(dep, loader._refererName);
     }))
     .then(function(normalizedDeps) {
-      load._depResolvers = {};
+      entry._depResolvers = {};
 
       // Got define function and dependencies now, so
-      // load is considered fully registered.
+      // entry is considered fully registered.
       loader._registeredCounter -= 1;
 
       // load dependencies
@@ -4490,7 +4505,7 @@ var parse;
         // Create an intermediary for the dependency, to allow
         // for cycle resolution if the dependency tree gets stuck.
         var depResolver = new DepResolver(dep, loader._pipeline(dep));
-        load._depResolvers[dep] = depResolver;
+        entry._depResolvers[dep] = depResolver;
         return depResolver.p;
       })).then(function() {
         // create module var and call factory
@@ -4498,27 +4513,27 @@ var parse;
         // What about custom hooks, they should be passed down?
         var module = new Loader({
           parent: loader,
-          refererName: load.name,
+          refererName: entry.name,
           _knownLocalModules: parseResult.localModules
         });
 
         try {
-          load._factory(module);
+          entry._factory(module);
         } catch(e) {
-          return load.reject(e);
+          return entry.reject(e);
         }
 
         Promise.cast().then(function () {
           if (hasProp(module, '_usesExportFromLocal')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
-            var load = module._loads[specialExportLocalName];
+            var entry = module._entries[specialExportLocalName];
 
             // Enable the local module, since needed to set
             // current module export
-            enable(load);
+            enable(entry);
 
-            return load.whenFulfilled.then(function (value) {
+            return entry.whenFulfilled.then(function (value) {
               // Purposely do not return a value, in case the
               // module export is a Promise.
               module._export = value.exportValue;
@@ -4531,182 +4546,155 @@ var parse;
 
           // Because of cycles, may have a module entry, but the
           // value may not have been set yet.
-          var moduleDef = loader._modules[load.name] || {};
+          var moduleDef = loader._modules[entry.name] || {};
           moduleDef.exportValue = exportValue;
-          loader._modules[load.name] = moduleDef;
+          loader._modules[entry.name] = moduleDef;
 
-          // Only trigger load module resolution if not already
+          // Only trigger module resolution if not already
           // set because of a cycle.
-          if (!load._moduleResolved) {
-            load._moduleResolve(moduleDef);
+          if (!entry._moduleResolved) {
+            entry._moduleResolve(moduleDef);
           }
 
-          // TODO: clean up the load, remove it so can be garbage collected,
+          // TODO: clean up the entry, remove it so can be garbage collected,
           // by calling then on the whenFulfilled thing. Is this safe to do
-          // though? promise microtasks and the load reference that is used
+          // though? promise microtasks and the entry reference that is used
           // across async calls in _pipeline might make it a bad idea.
         })
-        .catch(load.reject);
+        .catch(entry.reject);
       })
-      .catch(load.reject);
+      .catch(entry.reject);
     })
-    .catch(load.reject);
+    .catch(entry.reject);
   }
 
-  function Loader(options) {
-    options = options || {};
 
-    function module(name) {
-      var normalizedName = instance._normIfReferer(name);
-
-      if (instance._hasNormalized(normalizedName)) {
-        return instance._modules[normalizedName].exportValue;
-      } else if (instance._parent) {
-        return instance._parent(normalizedName);
-      }
-
-      throw new Error('module with name "' +
-                      normalizedName + '" does not have an export');
-    }
-
-    var instance = module;
-
-    mix(module, Loader.prototype, true);
-
+  function PrivateLoader(options) {
     if (options.createHooks) {
-      var hooks = options.createHooks(instance);
+      var hooks = options.createHooks(this);
       hookNames.forEach(function(hookName) {
-        instance[hookName] = hooks[hookName];
-      });
+        this[hookName] = hooks[hookName];
+      }.bind(this));
     }
 
-    instance._parent = options.parent;
-    instance._refererName = options.refererName;
-    instance._modules = {};
-    instance._loads = {};
-    instance._registeredCounter = 0;
-    instance._fetches = {};
-    instance._dynaLoads = [];
+    this._parent = options.parent;
+    this._refererName = options.refererName;
+    this._modules = {};
+    this._entries = {};
+    this._registeredCounter = 0;
+    this._fetches = {};
+    this._dynaEntries = [];
 
     // Set up top
-    instance.top = instance._parent ? instance._parent.top : instance;
+    this.top = this._parent ? this._parent.top : this;
 
     // default export object
-    instance._export = {};
+    this._export = {};
 
-    function createLoad(normalizedName, parentLoad) {
-      var load = {
+    if (options._knownLocalModules) {
+      options._knownLocalModules.forEach(function(localModuleName) {
+        this.createEntry(localModuleName);
+      }.bind(this));
+    }
+
+  }
+
+  PrivateLoader.prototype = {
+    createEntry: function(normalizedName, parentEntry) {
+      var entry = {
         name: normalizedName,
         metadata: {},
         address: undefined,
         source: undefined,
-        _loader: instance
+        _loader: this
       };
 
-      load.whenFulfilled = new Promise(function(resolve, reject) {
-        load._moduleResolve = function(value) {
-          load._moduleResolved = true;
+      entry.whenFulfilled = new Promise(function(resolve, reject) {
+        entry._moduleResolve = function(value) {
+          entry._moduleResolved = true;
           resolve(value);
         };
 
-        load.reject = reject;
+        entry.reject = reject;
       });
 
-      if (parentLoad) {
-        load._parentLoad = parentLoad;
-        parentLoad.whenFulfilled.then(load._moduleResolve);
+      if (parentEntry) {
+        entry._parentEntry = parentEntry;
+        parentEntry.whenFulfilled.then(entry._moduleResolve);
       }
 
-      instance._registeredCounter += 1;
-      return (instance._loads[normalizedName] = load);
-    }
+      this._registeredCounter += 1;
+      return (this._entries[normalizedName] = entry);
+    },
 
-    instance._getCreateLocalLoad = function(normalizedName) {
-      var load = hasProp(instance._loads, normalizedName) &&
-                 instance._loads[normalizedName];
-      if (!load) {
-        load = createLoad(normalizedName);
+    _getCreateLocalEntry: function(normalizedName) {
+      var entry = hasProp(this._entries, normalizedName) &&
+                 this._entries[normalizedName];
+      if (!entry) {
+        entry = this.createEntry(normalizedName);
       }
-      return load;
-    };
+      return entry;
+    },
 
-    // Gets the load from this or parent instances
-    instance._getLoad = function(name) {
-      if (hasProp(instance._loads, name)) {
-        return instance._loads[name];
-      } else if (instance._parent) {
-        // Store a local load for it, now that one module
+    // Gets the entry from this or parent instances
+    _getEntry: function(name) {
+      if (hasProp(this._entries, name)) {
+        return this._entries[name];
+      } else if (this._parent) {
+        // Store a local entry for it, now that one module
         // in this instance is bound to it, all should.
         // This also ensures a local _modules entry later
         // for all modules in this loader instance
-        return instance._parent._getLoad(name);
+        return this._parent._getEntry(name);
       }
-    };
+    },
 
-    instance._getLoadOrCreateFromTop = function(name) {
-      var load;
-      if (hasProp(instance._loads, name)) {
-        load = instance._loads[name];
-      } else if (instance._parent) {
-        // Store a local load for it, now that one module
+    _getEntryOrCreateFromTop: function(name) {
+      var entry;
+      if (hasProp(this._entries, name)) {
+        entry = this._entries[name];
+      } else if (this._parent) {
+        // Store a local entry for it, now that one module
         // in this instance is bound to it, all should.
         // This also ensures a local _modules entry later
         // for all modules in this loader instance
-        load = instance._parent._getLoadOrCreateFromTop(name);
-        if (load) {
-          load = createLoad(name, load);
+        entry = this._parent._getEntryOrCreateFromTop(name);
+        if (entry) {
+          entry = this.createEntry(name, entry);
         }
       }
-      if (!load) {
-        load = createLoad(name);
+      if (!entry) {
+        entry = this.createEntry(name);
       }
-      return load;
-    };
+      return entry;
+    },
 
-    instance._getFetch = function(address) {
-      if (hasProp(instance._fetches, address)) {
-        return instance._fetches[address];
-      } else if (instance._parent) {
-        return instance._parent._getFetch(address);
+    _getFetch: function(address) {
+      if (hasProp(this._fetches, address)) {
+        return this._fetches[address];
+      } else if (this._parent) {
+        return this._parent._getFetch(address);
       }
-    };
+    },
 
-    instance._pipeline = function(name) {
+    _pipeline: function(name) {
       return Promise.cast()
         .then(function() {
           // normalize
-          return Promise.cast(instance.normalize(name));
-        })
+          return Promise.cast(this.normalize(name));
+        }.bind(this))
         .then(function(normalizedName) {
           // locate
-          if (hasProp(instance._modules, normalizedName)) {
-            return instance._modules[normalizedName];
+          if (hasProp(this._modules, normalizedName)) {
+            return this._modules[normalizedName];
           } else {
-            var load = instance._getLoadOrCreateFromTop(normalizedName);
-            enable(load);
-            return load.whenFulfilled;
+            var entry = this._getEntryOrCreateFromTop(normalizedName);
+            enable(entry);
+            return entry.whenFulfilled;
           }
-        });
-    };
+        }.bind(this));
+    },
 
-    if (options._knownLocalModules) {
-      options._knownLocalModules.forEach(function(localModuleName) {
-        createLoad(localModuleName);
-      });
-    }
-
-    // TODO: enable a debug flag, on script tag? that turns this tracking
-    // on or off
-    if (topModule && topModule._allLoaders) {
-      topModule._allLoaders.push(module);
-    }
-
-    return module;
-  };
-
-  // Specified as a prototype, but these values are just mixed in
-  // to the Loader instance function.
-  Loader.prototype = {
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
                        this.normalize(name, this._refererName) :
@@ -4719,33 +4707,125 @@ var parse;
       return normalized;
     },
 
-    // START module lifecycle events
-    normalize: function(name /*, refererName, refererAddress */) {
-      return name;
+    _hasNormalized: function(normalizedName) {
+      return hasProp(this._modules, normalizedName);
     },
 
-    locate: function(load) {
-      // load: name, metadata
-
-      return load.name + '.js';
+    _setWatch: function() {
+      // The choice of this timeout is arbitrary. Do not wan it
+      // to fire too frequently given all the async promises,
+      // but do not want it to go too long.
+      this._watchId = setTimeout(this._watch.bind(this), 25);
     },
 
-    fetch: function(load) {
-      // load: name, metadata, address
+    // Watch for error timeouts, cycles
+    _watch: function() {
+      this._watchId = 0;
+      // Do not bother if modules are still registering.
+      if (this._registeredCounter) {
+        this._setWatch();
+        return;
+      }
 
-      return fetchText(load.address);
+      // Scan for timeouts, but only if a wait interval is set.
+      if (this._waitInterval) {
+        var now = Date.now(),
+            hasExpiredEntries = false,
+            waitInterval = this._waitInterval;
+
+        this._entries.forEach(function(entry) {
+          if (!entry._moduleResolved &&
+              entry._startTime + waitInterval < now) {
+            entry.reject(new Error('module timeout: ' + entry.name));
+          }
+        });
+
+        // Since some expired, then bail. This may be too
+        // coarse-grained of an action to take.
+        if (hasExpiredEntries) {
+          return;
+        }
+      }
+
+      // Break cycles. Go backwards in the dynaEntries since as
+      // they are resolved, they are removed from the dynaEntries
+      // array. While unlikely they will remove themselves during
+      // this for loop given the async promise resolution, just
+      // doing it to be safe.
+      for (var i = this._dynaEntries.length - 1; i > -1; i--) {
+        this._breakCycle(this._dynaEntries[i], {}, {});
+      }
+
+      // If still have some dynamic loads waiting, keep periodically
+      // checking.
+      if (this._dynaEntries.length) {
+        this._setWatch();
+      }
     },
 
-    translate: function(load) {
-      //load: name, metadata, address, source
+    _breakCycle: function(entry, traced, processed) {
+      var name = entry.name;
 
-      return load.source;
+      if (name) {
+        traced[name] = true;
+      }
+
+      if (!entry._moduleResolved && entry.deps.length) {
+        entry.deps.forEach(function (depName) {
+          var depEntry = this._getEntry(depName);
+
+          if (depEntry && !depEntry._moduleResolved && !processed[depName]) {
+            if (hasProp(traced, depName)) {
+              // Fake the resolution of this dependency for the module,
+              // by asking the DepResolver to pretend it is done. Only
+              // want to pretend the dependency is done for this cycle
+              // though. Other modules depending on this dependency
+              // should get the opportunity to get the real module value
+              // once this specific cycle is resolved.
+              entry._depResolvers[depName].resolveForCycle(entry._loader);
+            } else {
+              this._breakCycle(depEntry, traced, processed);
+            }
+          }
+        }.bind(this));
+      }
+
+      if (name) {
+        processed[name] = true;
+      }
+    },
+/*
+todo:
+waitInterval config
+ */
+    eval: function(sourceText) {
+      return eval(sourceText);
     },
 
-    // END module lifecycle events
+    // START MIRROR OF PUBLIC API
+    getModule: function(name) {
+      var normalizedName = this._normIfReferer(name);
 
-    // START declarative API
-    set export (value) {
+      if (this._hasNormalized(normalizedName)) {
+        // For cycles, use the original export, unless the
+        // module has been fully resolved.
+        var entry = this._entries[normalizedName];
+        if (entry._moduleResolved) {
+          return this._modules[normalizedName].exportValue;
+        } else {
+          // NOTE: here is where a special proxy or something could go
+          // to improve cycles.
+          return entry._loader._export;
+        }
+      } else if (this._parent) {
+        return this._parent(normalizedName);
+      }
+
+      throw new Error('module with name "' +
+                      normalizedName + '" does not have an export');
+    },
+
+    setExport: function(value) {
       if (hasProp(this, '_usesExportFromLocal')) {
         throw new Error('module.exportFromLocal() already called');
       }
@@ -4754,9 +4834,6 @@ var parse;
 
       // TODO: throw if called after module is considered "defined"
       this._export = value;
-    },
-    get export () {
-      return this._export;
     },
 
     exportFromLocal: function(fn) {
@@ -4771,7 +4848,6 @@ var parse;
       // TODO: throw if called after module is considered "defined"
       this._usesExportFromLocal = true;
     },
-    // END declarative API
 
     define: function(name, fn) {
       if (typeof name !== 'string') {
@@ -4780,18 +4856,16 @@ var parse;
         return;
       }
 
-      var load = this._getCreateLocalLoad(name);
-      load._factory = fn;
-      load._registered = true;
+      var entry = this._getCreateLocalEntry(name);
+      entry._factory = fn;
+      entry._registered = true;
 
-      if (load._callEnableOnDefine) {
-        enable(load);
+      if (entry._callEnableOnDefine) {
+        enable(entry);
       }
     },
 
-    // Variadic:
-    // module.use('a', 'b', 'c', function (a, b, c){}, function(err){});
-    use: function () {
+    use: function() {
       var callback, errback,
           args = slice(arguments);
 
@@ -4835,7 +4909,7 @@ var parse;
 
         // Track top level loads, used to trace for cycles
         p.deps = uniqueNames;
-        this._dynaLoads.push(p);
+        this._dynaEntries.push(p);
         this._setWatch();
 
         return prim.all(pipelinePromises);
@@ -4843,10 +4917,10 @@ var parse;
       .then(function(moduleDefArray) {
         var finalExports = [];
 
-        // Clear this API call from the track of dynaLoads,
+        // Clear this API call from the track of dynaEntries,
         // no longer an input for cycle breaking.
-        this._dynaLoads.splice(this._dynaLoads.indexOf(p), 1);
-        if (!this._dynaLoads.length) {
+        this._dynaEntries.splice(this._dynaEntries.indexOf(p), 1);
+        if (!this._dynaEntries.length) {
           clearTimeout(this._watchId);
           this._watchId = 0;
         }
@@ -4870,99 +4944,6 @@ var parse;
       return p;
     },
 
-    _setWatch: function() {
-      // The choice of this timeout is arbitrary. Do not wan it
-      // to fire too frequently given all the async promises,
-      // but do not want it to go too long.
-      this._watchId = setTimeout(this._watch.bind(this), 25);
-    },
-
-    // Watch for error timeouts, cycles
-    _watch: function() {
-      this._watchId = 0;
-      // Do not bother if modules are still registering.
-      if (this._registeredCounter) {
-        this._setWatch();
-        return;
-      }
-
-      // Scan for timeouts, but only if a wait interval is set.
-      if (this._waitInterval) {
-        var now = Date.now(),
-            hasExpiredLoads = false,
-            waitInterval = this._waitInterval;
-
-        this._loads.forEach(function(load) {
-          if (!load._moduleResolved &&
-              load._startTime + waitInterval < now) {
-            load.reject(new Error('module timeout: ' + load.name));
-          }
-        });
-
-        // Since some expired, then bail. This may be too
-        // coarse-grained of an action to take.
-        if (hasExpiredLoads) {
-          return;
-        }
-      }
-
-      // Break cycles. Go backwards in the dynaLoads since as
-      // they are resolved, they are removed from the dynaLoads
-      // array. While unlikely they will remove themselves during
-      // this for loop given the async promise resolution, just
-      // doing it to be safe.
-      for (var i = this._dynaLoads.length - 1; i > -1; i--) {
-        this._breakCycle(this._dynaLoads[i], {}, {});
-      }
-
-      // If still have some dynamic loads waiting, keep periodically
-      // checking.
-      if (this._dynaLoads.length) {
-        this._setWatch();
-      }
-    },
-
-
-    _breakCycle: function(load, traced, processed) {
-      var name = load.name;
-
-      if (name) {
-        traced[name] = true;
-      }
-
-      if (!load._moduleResolved && load.deps.length) {
-        load.deps.forEach(function (depName) {
-          var depLoad = this._getLoad(depName);
-
-          if (depLoad && !depLoad._moduleResolved && !processed[depName]) {
-            if (hasProp(traced, depName)) {
-              // Fake the resolution of this dependency for the module,
-              // by asking the DepResolver to pretend it is done. Only
-              // want to pretend the dependency is done for this cycle
-              // though. Other modules depending on this dependency
-              // should get the opportunity to get the real module value
-              // once this specific cycle is resolved.
-              load._depResolvers[depName].resolveForCycle(load._loader);
-            } else {
-              this._breakCycle(depLoad, traced, processed);
-            }
-          }
-        }.bind(this));
-      }
-
-      if (name) {
-        processed[name] = true;
-      }
-    },
-/*
-todo:
-waitInterval config
- */
-
-    eval: function(sourceText) {
-      return eval(sourceText);
-    },
-
     has: function(name) {
       var normalizedName = this._normIfReferer(name);
 
@@ -4977,10 +4958,6 @@ waitInterval config
       return false;
     },
 
-    _hasNormalized: function(normalizedName) {
-      return hasProp(this._modules, normalizedName);
-    },
-
     delete: function(name) {
       var normalizedName = this._normIfReferer(name);
       if (this._hasNormalized(normalizedName)) {
@@ -4988,23 +4965,79 @@ waitInterval config
       } else {
         throw new Error('loader does not have module name: ' + normalizedName);
       }
-    },
-
-    entries: function() {
-
-    },
-
-    keys: function() {
-
-    },
-
-    values: function() {
-
     }
+    // END MIRROR OF PUBLIC API
+  };
+
+  function Loader(options) {
+    options = options || {};
+
+    var privateLoader = new PrivateLoader(options);
+
+    function module(name) {
+      return privateLoader.getModule(name);
+    }
+
+    // Set up the other public APIs on the module object
+    publicModuleApis.forEach(function(name) {
+      module[name] = function() {
+        return privateLoader[name].apply(privateLoader, arguments);
+      };
+    });
+    mix(module, {
+      set export (value) {
+        return privateLoader.setExport(value);
+      },
+      get export () {
+        return privateLoader._export;
+      }
+    }, true);
+
+    // Mix in loader prototype methods, to all them to be overridden?
+    mix(module, Loader.prototype, true);
+
+    module.Loader = Loader;
+
+    // TODO: enable a debug flag, on script tag? that turns this tracking
+    // on or off
+    if (_allLoaders) {
+      _allLoaders.push(module);
+    }
+
+    return module;
+  }
+
+  // Specified as a prototype, but these values are just mixed in
+  // to the Loader instance function.
+  Loader.prototype = {
+    // START module lifecycle events
+    normalize: function(name /*, refererName, refererAddress */) {
+      return name;
+    },
+
+    locate: function(entry) {
+      // entry: name, metadata
+
+      return entry.name + '.js';
+    },
+
+    fetch: function(entry) {
+      // entry: name, metadata, address
+
+      return fetchText(entry.address);
+    },
+
+    translate: function(entry) {
+      //entry: name, metadata, address, source
+
+      return entry.source;
+    },
+
+    // END module lifecycle events
   };
 
   module = new Loader();
-  var topModule = module;
+
   // debug stuff
-  module._allLoaders = [];
+  module._allLoaders = _allLoaders;
 }());

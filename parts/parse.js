@@ -129,6 +129,7 @@ var parse;
           // uses set, and continue parsing lower, since set
           // usage could use get inside to construct the export
           usesExport = true;
+          return false;
         }
       });
 

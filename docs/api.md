@@ -180,7 +180,7 @@ would like to switch to using the sweetjs reader in the future, as it would
 allow more flexibility in the level of JS support.
 
 [prim](https://github.com/requirejs/prim) is used for promise support. It passes
-the a+ promises 2.0.3 tests.
+the a+ promises 2.0.4 tests.
 
 ## Scratchpad
 
@@ -200,6 +200,8 @@ Notes
 TODOS:
 
 * Make sure cycle test uses created export? Rather, make sure it gets undefined for cleanliness right now.
+
+* Test for loading just a set of named module.define modules
 
 * declarative config easier for tools to read, for autocomplete. add in loader.config() for top level module objects only, using AMD-inspired config as baseline. Accessible via module.top.config();
 
@@ -225,8 +227,6 @@ TODOS:
 
 * specify module.uri for nested module, plus relative module IDs,
 for it.
-
-* one API entry point, `module`, always context-specific, allows nesting.
 
 * Wire up waitInterval timeouts. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs? Does the DepResolver now help with that indirection?
 
