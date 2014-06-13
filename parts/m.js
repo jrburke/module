@@ -468,6 +468,12 @@ var module;
 
           if (depEntry && !depEntry._moduleResolved && !processed[depName]) {
             if (hasProp(traced, depName)) {
+              // Track the ID as one needing a phantom.
+              if (!entry._cyclePhantoms) {
+                entry._cyclePhantoms = {};
+              }
+              entry._cyclePhantoms[depName] = true;
+
               // Fake the resolution of this dependency for the module,
               // by asking the DepResolver to pretend it is done. Only
               // want to pretend the dependency is done for this cycle

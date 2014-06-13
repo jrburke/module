@@ -1,5 +1,9 @@
+function(module){
+
+var funcFour = undefined;
+
 var Three = function (arg) {
-  return arg + '-' + module('funcFour').suffix();
+  return arg + '-' + (module('funcFour')).suffix();
 };
 
 Three.suffix = function () {
@@ -7,3 +11,5 @@ Three.suffix = function () {
 };
 
 module.export = Three;
+
+}

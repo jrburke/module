@@ -4142,6 +4142,12 @@ parseStatement: true, parseSourceElement: true */
   /*global esprima */
 var parse;
 (function() {
+
+  var hasOwn = Object.prototype.hasOwnProperty;
+  function hasProp(obj, prop) {
+      return hasOwn.call(obj, prop);
+  }
+
   //From an esprima example for traversing its ast.
   function traverse(object, visitor) {
     var key, child;
@@ -4188,6 +4194,25 @@ var parse;
     }
   }
 
+  function getApiName(node) {
+    if (node.type === 'FunctionExpression' &&
+        node.params && node.params.length === 1) {
+      return node.params[0].name;
+    }
+  }
+
+  function matchesModuleDeclaration(node, apiName) {
+    if (node.type === 'CallExpression' &&
+            node.callee &&
+            node.callee.type === 'Identifier' &&
+            node.callee.name === apiName &&
+            node.arguments &&
+            node.arguments.length === 1 &&
+            node.arguments[0].type === 'Literal') {
+      return node.arguments[0].value;
+    }
+  }
+
   function matchesCallExpression(node, objectName, propertyName) {
     return node.type === 'CallExpression' && node.callee &&
            node.callee.type === 'MemberExpression' && node.callee.object &&
@@ -4201,6 +4226,17 @@ var parse;
            node.object.name === objectName && node.property &&
            node.property.type === 'Identifier' &&
            node.property.name === propertyName;
+  }
+
+  function getPhantomRefName(node, apiName, phantoms) {
+    var dep = matchesModuleDeclaration(node, apiName);
+    if (dep && hasProp(phantoms, dep)) {
+      return dep;
+    }
+  }
+
+  function modeRefText(apiName, moduleId) {
+    return '(' + apiName + '(\'' + moduleId + '\'))';
   }
 
   parse = {
@@ -4229,21 +4265,16 @@ var parse;
       traverseBroad(astRoot, function(node) {
         // Minified code could have changed the name of `module` to something
         // else, so find it. It will be the first function expression.
-        if (!apiName && node.type === 'FunctionExpression' &&
-            node.params && node.params.length === 1) {
-          apiName = node.params[0].name;
-          return;
+        if (!apiName) {
+          apiName = getApiName(node);
+          if (apiName) {
+            return;
+          }
         }
 
         // Look for dependencies
-        if (node.type === 'CallExpression' &&
-            node.callee &&
-            node.callee.type === 'Identifier' &&
-            node.callee.name === apiName &&
-            node.arguments &&
-            node.arguments.length === 1 &&
-            node.arguments[0].type === 'Literal') {
-          var dep = node.arguments[0].value;
+        var dep = matchesModuleDeclaration(node, apiName);
+        if (dep) {
           if (deps.indexOf(dep) === -1) {
             deps.push(dep);
           }
@@ -4279,6 +4310,96 @@ var parse;
         localModules: localModules,
         usesExportFromLocal: usesExportFromLocal,
         isModule: !!(deps.length || usesExportFromLocal || usesExport)
+      };
+    },
+
+    insertPhantoms: function(fn, phantoms) {
+      var modified = parse._insertPhantomsInText(fn.toString(), phantoms),
+          text = modified.text;
+
+      // Get the body only, for the new Function call
+      var body = text.substring(text.indexOf('{'),
+                                text.fnString.lastIndexOf('}'));
+
+      return new Function(modified.apiName, body);
+    },
+
+    // A separate function just because of tests, so that fn.toString()
+    // variances across browsers do not come into play. The text
+    // returned has an extry () wrapping. It is not stripped because the
+    // consumer of this function will discard more of the text, and just trying
+    // to avoid extra substring work.
+    _insertPhantomsInText: function(text, phantoms) {
+      var apiName, map,
+          fnString = '(' + text + ')',
+          mappings = {},
+          replacements = [],
+          astRoot = esprima.parse(fnString, {
+            range: true
+          });
+
+      traverseBroad(astRoot, function(node) {
+        var phantomName, identifier;
+
+        // Minified code could have changed the name of `module` to something
+        // else, so find it. It will be the first function expression.
+        if (!apiName) {
+          apiName = getApiName(node);
+          if (apiName) {
+            return;
+          }
+        }
+
+        if (node.type === 'Identifier') {
+          identifier = node.name;
+          if (hasProp(mappings, identifier)) {
+            map = mappings[identifier];
+            if (node.range[0] !== map.idRange[0]) {
+              replacements.push({
+                range: node.range,
+                text: modeRefText(apiName, map.phantomName)
+              });
+            }
+          }
+        }
+
+        if (node.type === 'VariableDeclarator') {
+          phantomName = node.init &&
+                        getPhantomRefName(node.init, apiName, phantoms);
+
+          if (phantomName) {
+            identifier = node.id.name;
+            mappings[identifier] = {
+              phantomName: phantomName,
+              idRange: node.id.range
+            };
+
+            // Replace the module('') use with `undefined`
+            replacements.push({
+              range: node.init.range,
+              text: 'undefined'
+            });
+          }
+        }
+
+        // destructuring
+      });
+
+
+      if (replacements.length) {
+        // Go in reverse order, since the string replacements will change the
+        // range values if done from the beginning.
+        for (var i = replacements.length - 1; i > -1; i--) {
+          var rep = replacements[i];
+          fnString = fnString.substring(0, rep.range[0]) +
+                     rep.text +
+                     fnString.substring(rep.range[1]);
+        }
+      }
+
+      return {
+        apiName: apiName,
+        text: fnString
       };
     }
   };
@@ -4741,6 +4862,12 @@ var parse;
 
           if (depEntry && !depEntry._moduleResolved && !processed[depName]) {
             if (hasProp(traced, depName)) {
+              // Track the ID as one needing a phantom.
+              if (!entry._cyclePhantoms) {
+                entry._cyclePhantoms = {};
+              }
+              entry._cyclePhantoms[depName] = true;
+
               // Fake the resolution of this dependency for the module,
               // by asking the DepResolver to pretend it is done. Only
               // want to pretend the dependency is done for this cycle
