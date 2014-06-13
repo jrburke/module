@@ -16,7 +16,8 @@ var module;
 
   var Promise = prim,
       aslice = Array.prototype.slice,
-      _allLoaders = [];
+      _allLoaders = [],
+      isDebug = true;
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
   var publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
@@ -115,10 +116,10 @@ console.log('DEPRESOLVER: ' + this.name);
     var fetch = new Promise(function(resolve, reject) {
       var entry = loader._entries[normalizedName];
 
-      Promise.cast(loader.fetch(entry))
+      Promise.cast(loader.moduleApi.fetch(entry))
         .then(function(source) {
           entry.source = source;
-          return loader.translate(entry);
+          return loader.moduleApi.translate(entry);
         })
         .then(function(source) {
           try {
@@ -164,7 +165,7 @@ console.log('DEPRESOLVER: ' + this.name);
 
     if (!entry._registered) {
       entry._fetching = true;
-      Promise.cast(loader.locate(entry))
+      Promise.cast(loader.moduleApi.locate(entry))
         .then(function(address) {
           entry.address = address;
 
@@ -218,7 +219,7 @@ console.log('DEPRESOLVER: ' + this.name);
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return loader.normalize(dep, loader._refererName);
+      return loader.moduleApi.normalize(dep, loader._refererName);
     }))
     .then(function(normalizedDeps) {
       entry._depResolvers = {};
@@ -238,23 +239,30 @@ console.log('DEPRESOLVER: ' + this.name);
         // create module var and call factory
         // TODO: is this the right thing to create?
         // What about custom hooks, they should be passed down?
-        var module = new Loader({
+        var loaderPair = createLoaderPair({
           parent: loader,
-          refererName: entry.name,
-          _knownLocalModules: parseResult.localModules
+          refererName: entry.name
         });
+        var localModuleApi = loaderPair.moduleApi,
+            localPrivateLoader = loaderPair.privateLoader;
+
+        if (parseResult.localModules) {
+          parseResult.localModules.forEach(function(localModuleName) {
+            loaderPair.privateLoader.createEntry(localModuleName);
+          });
+        }
 
         try {
-          entry._factory(module);
+          entry._factory(localModuleApi);
         } catch(e) {
           return entry.reject(e);
         }
 
         Promise.cast().then(function () {
-          if (hasProp(module, '_usesExportFromLocal')) {
+          if (hasProp(localPrivateLoader, '_usesExportFromLocal')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
-            var entry = module._entries[specialExportLocalName];
+            var entry = localPrivateLoader._entries[specialExportLocalName];
 
             // Enable the local module, since needed to set
             // current module export
@@ -263,13 +271,13 @@ console.log('DEPRESOLVER: ' + this.name);
             return entry.whenFulfilled.then(function (value) {
               // Purposely do not return a value, in case the
               // module export is a Promise.
-              module._export = value.exportValue;
+              localPrivateLoader._export = value.exportValue;
             });
           }
         })
         .then(function() {
           // Get final module value
-          var exportValue = module._export;
+          var exportValue = localPrivateLoader._export;
 
           // Because of cycles, may have a module entry, but the
           // value may not have been set yet.
@@ -317,13 +325,6 @@ console.log('DEPRESOLVER: ' + this.name);
 
     // default export object
     this._export = {};
-
-    if (options._knownLocalModules) {
-      options._knownLocalModules.forEach(function(localModuleName) {
-        this.createEntry(localModuleName);
-      }.bind(this));
-    }
-
   }
 
   PrivateLoader.prototype = {
@@ -408,7 +409,7 @@ console.log('DEPRESOLVER: ' + this.name);
       return Promise.cast()
         .then(function() {
           // normalize
-          return Promise.cast(this.normalize(name));
+          return Promise.cast(this.moduleApi.normalize(name));
         }.bind(this))
         .then(function(normalizedName) {
           // locate
@@ -424,7 +425,7 @@ console.log('DEPRESOLVER: ' + this.name);
 
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
-                       this.normalize(name, this._refererName) :
+                       this.moduleApi.normalize(name, this._refererName) :
                        name;
 
       if (typeof normalized !== 'string') {
@@ -545,7 +546,7 @@ waitInterval config
           return entry._loader._export;
         }
       } else if (this._parent) {
-        return this._parent(normalizedName);
+        return this._parent.moduleApi(normalizedName);
       }
 
       throw new Error('module with name "' +
@@ -617,7 +618,7 @@ waitInterval config
           uniqueNames = [];
 
       var p = prim.all(args.map(function(name) {
-        return this.normalize(name, this._refererName);
+        return this.moduleApi.normalize(name, this._refererName);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -696,13 +697,19 @@ waitInterval config
     // END MIRROR OF PUBLIC API
   };
 
-  function Loader(options) {
+  function createLoaderPair(options) {
     options = options || {};
 
     var privateLoader = new PrivateLoader(options);
 
     function module(name) {
       return privateLoader.getModule(name);
+    }
+
+    privateLoader.moduleApi = module;
+
+    if (isDebug) {
+      module._privateLoader = privateLoader;
     }
 
     // Set up the other public APIs on the module object
@@ -727,11 +734,18 @@ waitInterval config
 
     // TODO: enable a debug flag, on script tag? that turns this tracking
     // on or off
-    if (_allLoaders) {
+    if (isDebug && _allLoaders) {
       _allLoaders.push(module);
     }
 
-    return module;
+    return {
+      moduleApi: module,
+      privateLoader: privateLoader
+    };
+  }
+
+  function Loader(options) {
+    return createLoaderPair(options).moduleApi;
   }
 
   // Specified as a prototype, but these values are just mixed in
@@ -766,5 +780,7 @@ waitInterval config
   module = new Loader();
 
   // debug stuff
-  module._allLoaders = _allLoaders;
+  if (isDebug) {
+    module._allLoaders = _allLoaders;
+  }
 }());
