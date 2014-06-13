@@ -96,59 +96,39 @@ var module;
     pipelinePromise.then(this.resolve, this.reject);
   }
 
-  DepResolver.prototype = {
-    resolveForCycle: function(loaderInstance) {
-      // Create a placeholder for the value if needed.
-      if (!hasProp(loaderInstance._modules, this.name)) {
-console.log('DEPRESOLVER: ' + this.name);
-        loaderInstance._modules[this.name] = {
-          exportValue: loaderInstance._entries[this.name]._loader._export
-        };
-      }
-      this.resolve();
-    }
-  };
-
   function createFetch(loader, entry) {
     var normalizedName = entry.name,
         address = entry.address;
 
-    var fetch = new Promise(function(resolve, reject) {
-      var entry = loader._entries[normalizedName];
+    var fetch = Promise.cast(loader.moduleApi.fetch(entry))
+    .then(function(source) {
+      entry.source = source;
+      return loader.moduleApi.translate(entry);
+    })
+    .then(function(source) {
+      try {
+        var parseResult = parse.fromBody(source, 'module');
+        entry.parseResult = parseResult;
+        entry.deps = parseResult.deps;
 
-      Promise.cast(loader.moduleApi.fetch(entry))
-        .then(function(source) {
-          entry.source = source;
-          return loader.moduleApi.translate(entry);
-        })
-        .then(function(source) {
-          try {
-            var parseResult = parse.fromBody(source, 'module');
-            entry.parseResult = parseResult;
-            entry.deps = parseResult.deps;
+        // If it looks like a module body, then wrap
+        // in a module body function wrapper. Otherwise,
+        // treat it as a normal non-module script.
+        if (parseResult.isModule) {
+          source = 'module.define(\'' + normalizedName +
+                   '\', function(module) {\n' +
+                   source +
+                   '\n});';
+        }
+        source += '\r\n//# sourceURL=' + address;
 
-            // If it looks like a module body, then wrap
-            // in a module body function wrapper. Otherwise,
-            // treat it as a normal non-module script.
-            if (parseResult.isModule) {
-              source = 'module.define(\'' + normalizedName +
-                       '\', function(module) {\n' +
-                       source +
-                       '\n});';
-            }
-            source += '\r\n//# sourceURL=' + address;
-
-            loader.eval(source);
-          } catch(e) {
-            var err = new Error('Parse/eval error for "' + entry.name +
-                                '": ' + e);
-            err.originalError = e;
-            throw err;
-          }
-
-          resolve();
-        })
-        .catch(reject);
+        loader.eval(source);
+      } catch(e) {
+        var err = new Error('Parse/eval error for "' + entry.name +
+                            '": ' + e);
+        err.originalError = e;
+        throw err;
+      }
     });
 
     return (loader._fetches[address] = fetch);
@@ -159,7 +139,7 @@ console.log('DEPRESOLVER: ' + this.name);
       return enable(entry._parentEntry);
     }
 
-    var loader = entry._loader;
+    var loader = entry._loader._parent;
 
     entry._callEnableOnDefine = true;
 
@@ -236,19 +216,13 @@ console.log('DEPRESOLVER: ' + this.name);
         entry._depResolvers[dep] = depResolver;
         return depResolver.p;
       })).then(function() {
-        // create module var and call factory
-        // TODO: is this the right thing to create?
-        // What about custom hooks, they should be passed down?
-        var loaderPair = createLoaderPair({
-          parent: loader,
-          refererName: entry.name
-        });
-        var localModuleApi = loaderPair.moduleApi,
-            localPrivateLoader = loaderPair.privateLoader;
+        // Get module var and call factory
+        var localPrivateLoader = entry._loader,
+            localModuleApi = localPrivateLoader.moduleApi;
 
         if (parseResult.localModules) {
           parseResult.localModules.forEach(function(localModuleName) {
-            loaderPair.privateLoader.createEntry(localModuleName);
+            localPrivateLoader.createEntry(localModuleName);
           });
         }
 
@@ -303,7 +277,6 @@ console.log('DEPRESOLVER: ' + this.name);
     .catch(entry.reject);
   }
 
-
   function PrivateLoader(options) {
     if (options.createHooks) {
       var hooks = options.createHooks(this);
@@ -334,7 +307,10 @@ console.log('DEPRESOLVER: ' + this.name);
         metadata: {},
         address: undefined,
         source: undefined,
-        _loader: this
+        _loader: createLoaderPair({
+          parent: this,
+          refererName: normalizedName
+        }).privateLoader
       };
 
       entry.whenFulfilled = new Promise(function(resolve, reject) {
@@ -378,21 +354,9 @@ console.log('DEPRESOLVER: ' + this.name);
     },
 
     _getEntryOrCreateFromTop: function(name) {
-      var entry;
-      if (hasProp(this._entries, name)) {
-        entry = this._entries[name];
-      } else if (this._parent) {
-        // Store a local entry for it, now that one module
-        // in this instance is bound to it, all should.
-        // This also ensures a local _modules entry later
-        // for all modules in this loader instance
-        entry = this._parent._getEntryOrCreateFromTop(name);
-        if (entry) {
-          entry = this.createEntry(name, entry);
-        }
-      }
+      var entry = this._getEntry(name);
       if (!entry) {
-        entry = this.createEntry(name);
+        entry = this.top.createEntry(name);
       }
       return entry;
     },
@@ -510,7 +474,7 @@ console.log('DEPRESOLVER: ' + this.name);
               // though. Other modules depending on this dependency
               // should get the opportunity to get the real module value
               // once this specific cycle is resolved.
-              entry._depResolvers[depName].resolveForCycle(entry._loader);
+              entry._depResolvers[depName].resolve();
             } else {
               this._breakCycle(depEntry, traced, processed);
             }
@@ -533,20 +497,18 @@ waitInterval config
     // START MIRROR OF PUBLIC API
     getModule: function(name) {
       var normalizedName = this._normIfReferer(name);
+      var entry = this._getEntry(normalizedName);
 
-      if (this._hasNormalized(normalizedName)) {
+      if (entry) {
         // For cycles, use the original export, unless the
         // module has been fully resolved.
-        var entry = this._entries[normalizedName];
         if (entry._moduleResolved) {
-          return this._modules[normalizedName].exportValue;
+          return entry._loader._export;
         } else {
           // NOTE: here is where a special proxy or something could go
           // to improve cycles.
           return entry._loader._export;
         }
-      } else if (this._parent) {
-        return this._parent.moduleApi(normalizedName);
       }
 
       throw new Error('module with name "' +
