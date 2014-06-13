@@ -1,6 +1,6 @@
-function(x){
+function(module){
 
-var funcFour = x('funcFour');
+let funcFour = module('funcFour');
 
 var Three = function (arg) {
   return arg + '-' + funcFour.suffix();
@@ -10,6 +10,6 @@ Three.suffix = function () {
   return 'THREE_SUFFIX';
 };
 
-x.export = Three;
+module.export = Three;
 
 }

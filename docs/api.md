@@ -199,7 +199,9 @@ Notes
 
 TODOS:
 
-* Make sure cycle test uses created export? Rather, make sure it gets undefined for cleanliness right now.
+* qunit module
+
+* use strict settings
 
 * Test for loading just a set of named module.define modules
 
@@ -231,6 +233,8 @@ for it.
 * Wire up waitInterval timeouts. Call reject on specific modules. Allow for a reset/remapping via paths array config in requirejs? Does the DepResolver now help with that indirection?
 
 * Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
+
+* Phantom insertion breaks debugging, look int sourceURL for it, probably hard to do for inlined modules. It is a proof of concept anyway for a language capability.
 
 * Store exportFromLocal factory in a special slot instead of using a special name.
 

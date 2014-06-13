@@ -8,7 +8,7 @@ var module;
   var esprima = {};
   (function() {
     var exports = esprima;
-    // INSERT esprima
+    // INSERT esprima-harmony
   }());
   // END wrapping for esprima
 
@@ -224,6 +224,11 @@ var module;
           parseResult.localModules.forEach(function(localModuleName) {
             localPrivateLoader.createEntry(localModuleName);
           });
+        }
+
+        if (entry._cyclePhantoms) {
+          entry._factory = parse.insertPhantoms(entry._factory,
+                                                entry._cyclePhantoms);
         }
 
         try {
@@ -511,9 +516,12 @@ waitInterval config
         if (entry._moduleResolved) {
           return entry._loader._export;
         } else {
-          // NOTE: here is where a special proxy or something could go
-          // to improve cycles.
-          return entry._loader._export;
+          throw new Error('Circular dependency: ' +
+                          this._loader._refererName +
+                          ' depends on ' + normalizedName +
+                          ' which has not been defined because' +
+                          ' of a cycle. Best to reauthor the' +
+                          ' module relationship.');
         }
       }
 

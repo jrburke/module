@@ -3,7 +3,7 @@
 var fs = require('fs'),
     path = require('path'),
     m = fs.readFileSync(path.join(__dirname, 'm.js'), 'utf8'),
-    insertions = ['prim', 'esprima', 'parse'];
+    insertions = ['prim', 'esprima-harmony', 'parse'];
 
 insertions.forEach(function(name) {
   var insertionString = '// INSERT ' + name,

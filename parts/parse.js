@@ -94,8 +94,10 @@ var parse;
     }
   }
 
-  function modeRefText(apiName, moduleId) {
-    return '(' + apiName + '(\'' + moduleId + '\'))';
+  function modeRefText(apiName, moduleId, propName) {
+    return '(' + apiName + '(\'' + moduleId + '\')' +
+           (propName ? '.' + propName : '') +
+           ')';
   }
 
   parse = {
@@ -177,8 +179,8 @@ var parse;
           text = modified.text;
 
       // Get the body only, for the new Function call
-      var body = text.substring(text.indexOf('{'),
-                                text.fnString.lastIndexOf('}'));
+      var body = text.substring(text.indexOf('{') + 1,
+                                text.lastIndexOf('}'));
 
       return new Function(modified.apiName, body);
     },
@@ -188,8 +190,15 @@ var parse;
     // returned has an extry () wrapping. It is not stripped because the
     // consumer of this function will discard more of the text, and just trying
     // to avoid extra substring work.
+    // TODO:
+    // Right now it replaces all non-property identifiers, where a more correct
+    // version would skip more local identifier declarations. For instance, if
+    // `a` is module identifier, but there is a `function helper() { var a; }`,
+    // it should not replace the `a` values in that scope. But this is just a
+    // proof of concept where language support would have an easier way of
+    // marking the identifiers that need the indirection.
     _insertPhantomsInText: function(text, phantoms) {
-      var apiName, map,
+      var apiName, map, destructureString, isIdInRange,
           fnString = '(' + text + ')',
           mappings = {},
           replacements = [],
@@ -209,41 +218,98 @@ var parse;
           }
         }
 
+        // Skip object.target when target is a phantom variable target,
+        // as it does not a valid write target.
+        if (node.type === 'MemberExpression' &&
+            node.property && node.property.type === 'Identifier' &&
+            hasProp(mappings, node.property.name)) {
+            mappings[node.property.name].idSkipRanges.push(node.property.range);
+          return;
+        }
+
         if (node.type === 'Identifier') {
           identifier = node.name;
           if (hasProp(mappings, identifier)) {
             map = mappings[identifier];
-            if (node.range[0] !== map.idRange[0]) {
+            isIdInRange = map.idSkipRanges.some(function(idSkipRange) {
+                            return node.range[0] >= idSkipRange[0] &&
+                                   node.range[1] <= idSkipRange[1];
+                          });
+            if (!isIdInRange) {
               replacements.push({
                 range: node.range,
-                text: modeRefText(apiName, map.phantomName)
+                text: modeRefText(apiName, map.phantomName, map.propName)
               });
             }
           }
         }
 
-        if (node.type === 'VariableDeclarator') {
-          phantomName = node.init &&
-                        getPhantomRefName(node.init, apiName, phantoms);
-
+        if (node.type === 'VariableDeclarator' && node.init) {
+          phantomName = getPhantomRefName(node.init, apiName, phantoms);
           if (phantomName) {
-            identifier = node.id.name;
-            mappings[identifier] = {
-              phantomName: phantomName,
-              idRange: node.id.range
-            };
+            if (node.id && node.id.type === 'ObjectPattern' &&
+                node.id.properties && node.id.properties.length) {
+              // var { b, c } = module('a')
 
-            // Replace the module('') use with `undefined`
-            replacements.push({
-              range: node.init.range,
-              text: 'undefined'
-            });
+              destructureString = '';
+              node.id.properties.forEach(function(prop, i) {
+                var key = prop.key,
+                    value = prop.value;
+
+                mappings[value.name] = {
+                  phantomName: phantomName,
+                  idSkipRanges: [node.id.range],
+                  propName: key.name
+                };
+
+                destructureString += (i > 0 ? ', ' : '') +
+                                     key.name + ': undefined';
+              });
+
+              // Replace the module('') use with `{}`
+              replacements.push({
+                range: node.init.range,
+                text: '{' + destructureString + '}'
+              });
+            } else {
+              // var a = module('a')
+
+              identifier = node.id.name;
+              mappings[identifier] = {
+                phantomName: phantomName,
+                idSkipRanges: [node.id.range]
+              };
+
+              // Replace the module('') use with `undefined`
+              replacements.push({
+                range: node.init.range,
+                text: 'undefined'
+              });
+            }
+          } else if (node.init.type === 'MemberExpression' &&
+              node.init.object && node.init.property &&
+              node.init.property.type === 'Identifier') {
+            // var b = module('a').b ?
+
+            phantomName = getPhantomRefName(node.init.object,
+                                            apiName, phantoms);
+            if (phantomName) {
+              identifier = node.id.name;
+              mappings[identifier] = {
+                phantomName: phantomName,
+                propName: node.init.property.name,
+                idSkipRanges: [node.id.range]
+              };
+
+              // Replace the module('') use with `undefined`
+              replacements.push({
+                range: node.init.range,
+                text: 'undefined'
+              });
+            }
           }
         }
-
-        // destructuring
       });
-
 
       if (replacements.length) {
         // Go in reverse order, since the string replacements will change the

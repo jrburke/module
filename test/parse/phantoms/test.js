@@ -25,6 +25,21 @@ doh.register(
       compare('simpleVar', {
         'funcFour': true
       });
+      compare('simpleLet', {
+        'funcFour': true
+      });
+      compare('simpleVarMangled', {
+        'funcFour': true
+      });
+      compare('simpleProp', {
+        'funcThree': true
+      });
+      compare('destructure', {
+        'parts': true
+      });
+      compare('destructureLocalName', {
+        'parts': true
+      });
     }
   ]
 );
