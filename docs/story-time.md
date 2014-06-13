@@ -19,7 +19,7 @@ var message = {
 };
 ```
 
-You reference variables and functions by their **identifiers**. In these examples, `hello` and `message`.
+You reference variables and functions by their **identifiers**. In these examples, `speak` and `message`.
 
 These constructs are useful for declaring a reusable unit of code, but does not speak to the loading of it. For references to these identifiers to work, they need to be declared before they are referenced.
 
