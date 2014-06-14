@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>QUnit Example</title>
+  <link rel="stylesheet" href="qunit-1.14.0.css">
+</head>
+<body>
+  <div id="qunit"></div>
+  <div id="qunit-fixture"></div>
+  <script src="../../../module.js"></script>
+  <script>
+    // Create a shortcut to hold on to top loader since QUnit will
+    // wipe out the global module with its own definition.
+    var Loader = module.top.Loader;
+  </script>
+  <!-- QUnit cannot be loaded async (not a module.js thing, it just does
+  not work async script loaded), so go old school. -->
+  <script src="qunit-1.14.0.js"></script>
+  <script>
+    QUnit.config.autostart = false;
+    var testLoader = new Loader();
+    testLoader.use('test', 'testGlobal', function() {
+      QUnit.start();
+    });
+  </script>
+</body>
+</html>

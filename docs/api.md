@@ -199,13 +199,13 @@ Notes
 
 TODOS:
 
-* qunit module
-
-* use strict settings
+* doc 'use strict' default.
 
 * Test for loading just a set of named module.define modules
 
 * declarative config easier for tools to read, for autocomplete. add in loader.config() for top level module objects only, using AMD-inspired config as baseline. Accessible via module.top.config();
+
+* When config is in: update qunit example for an override of module wrapping. Also for strict settings.
 
 * Error APIs giving URLs to descriptions of how to fix. Use first for cycles.
 

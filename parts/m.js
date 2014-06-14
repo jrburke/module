@@ -1,6 +1,11 @@
 var module;
-(function() {
-  'use strict';
+(function(global) {
+  function globalEval(sourceText) {
+    global.eval(sourceText);
+  }
+
+  // NOT using strict in here, since eval is used and the evaled code may not
+  // be strict-compliant.
 
   // INSERT prim
 
@@ -116,13 +121,21 @@ var module;
         // treat it as a normal non-module script.
         if (parseResult.isModule) {
           source = 'module.define(\'' + normalizedName +
-                   '\', function(module) {\n' +
+                   '\', function(module) { ' +
+                   '\'use strict\'; ' +
                    source +
                    '\n});';
         }
         source += '\r\n//# sourceURL=' + address;
 
-        loader.eval(source);
+        if (parseResult.isModule) {
+          loader.eval(source);
+        } else {
+          globalEval(source);
+          // For scripts that are not module bodies, indicate they have finished
+          // loading.
+          loader.define(normalizedName, function() {});
+        }
       } catch(e) {
         var err = new Error('Parse/eval error for "' + entry.name +
                             '": ' + e);
@@ -502,7 +515,8 @@ todo:
 waitInterval config
  */
     eval: function(sourceText) {
-      return eval(sourceText);
+      var module = this.moduleApi;
+      eval(sourceText);
     },
 
     // START MIRROR OF PUBLIC API
@@ -689,6 +703,7 @@ waitInterval config
     }
 
     // Set up the other public APIs on the module object
+    module.top = privateLoader.top.moduleApi;
     publicModuleApis.forEach(function(name) {
       module[name] = function() {
         return privateLoader[name].apply(privateLoader, arguments);
@@ -759,4 +774,4 @@ waitInterval config
   if (isDebug) {
     module._allLoaders = _allLoaders;
   }
-}());
+}(this));
