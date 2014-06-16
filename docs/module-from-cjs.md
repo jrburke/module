@@ -1,5 +1,7 @@
 # module from a CommonJS module perspective
 
+See the [examples](https://github.com/jrburke/module/blob/master/docs/examples.md).
+
 If you are used to CommonJS or Node modules, then the top level syntax for `module` should feel familiar. However, this an important semantic difference:
 
 Module dependencies are fetched and executed before the current module body. Module fetching and execution is not delayed until the `require()` is hit.

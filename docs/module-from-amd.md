@@ -1,6 +1,6 @@
 # module from an AMD module perspective
 
-See the [examples](), but main difference is that you no longer need to use a `define()` wrapper in the source of a module in individual files.
+See the [examples](https://github.com/jrburke/module/blob/master/docs/examples.md), but main difference is that you no longer need to use a `define()` wrapper in the source of a module in individual files.
 
 Some translations:
 
