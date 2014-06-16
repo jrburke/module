@@ -15,7 +15,7 @@ Configuration is only possible on a "top" loader, one that does not have a paren
 
 In the `new module.Loader({})` form, the object passed to the constructor is a configuration object.
 
-Additionally, these top loaders have a `loader.config({})` API to pass in config after their initial creation. The configuration object passed in to this method is deep-merged with the existing configuration.
+Additionally, these top loaders have a `loader.config({})` API to pass in config after their initial creation. The configuration object passed in to this method is merged with the existing configuration.
 
 For a web page, it will be typical to call `module.top.config({})` before loading any modules, if any configuration needs to be set up for the default loader.
 
@@ -191,4 +191,7 @@ Example:
 
 For the module that resolves to the absolute module ID of 'some/module/id', `module.config.limit === 40`.
 
+### createHooks
+
+xxx
 

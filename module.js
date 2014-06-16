@@ -5772,10 +5772,9 @@ var parse;
   var Promise = prim,
       aslice = Array.prototype.slice,
       _allLoaders = [],
-      isDebug = true;
-
-  var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
-  var publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
+      isDebug = true,
+      hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'],
+      publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
 
   // Easy implementation solution for exportFromLocal for now, but will move
   // to a separate storage area for that factory function later to avoid this.
@@ -5799,6 +5798,40 @@ var parse;
     });
     return target;
   }
+
+
+  function deepPropMix(dest, key, value) {
+    // This test probably not spec shiny
+    if (typeof value === 'object' && value &&
+           !Array.isArray(value) && typeof value !== 'function' &&
+           !(value instanceof RegExp)) {
+      if (!dest[key]) {
+          dest[key] = {};
+      }
+      deepSimpleMix(dest[key], value);
+    } else {
+      dest[key] = value;
+    }
+  }
+
+  /**
+   * Does a deep mix of source into dest, where source values override
+   * dest values if a winner is needed. Simple mix, for
+   * @param  {Object} dest destination object that receives the mixed
+   * values.
+   * @param  {Object} source source object contributing properties to mix
+   * in.
+   * @return {[Object]} returns dest object with the modification.
+   */
+  function deepSimpleMix(dest, source) {
+    Object.keys(source).forEach(function(key) {
+      var value = source[key];
+      deepPropMix(dest, key, value);
+    });
+
+    return dest;
+  }
+
 
   function fetchText(address) {
     return new Promise(function(resolve, reject) {
@@ -6045,15 +6078,8 @@ var parse;
     .catch(entry.reject);
   }
 
-  function PrivateLoader(options) {
-    if (options.createHooks) {
-      var hooks = options.createHooks(this);
-      hookNames.forEach(function(hookName) {
-        this[hookName] = hooks[hookName];
-      }.bind(this));
-    }
-
-    this._parent = options.parent;
+  function PrivateLoader(options, parent) {
+    this._parent;
     this._refererName = options.refererName;
     this._modules = {};
     this._entries = {};
@@ -6066,9 +6092,49 @@ var parse;
 
     // default export object
     this._export = {};
+
+    if (this._parent) {
+      this.options = this._parent.options;
+    } else {
+      this.options = {
+        baseUrl: '',
+        locations: {},
+        alias: {},
+        moduleConfig: {}
+      };
+    }
   }
 
   PrivateLoader.prototype = {
+    config: function(options) {
+      var opts = this.options;
+
+      Object.keys(options).forEach(function(key) {
+        var value = options[key];
+        if (options.createHooks) {
+          // Wire up hooks
+          var hooks = options.createHooks(this);
+          var module = this.moduleApi;
+          Object.keys(hooks).forEach(function(key) {
+            module[key] = hooks[key];
+          });
+        } else if (key === 'locations') {
+          // Look for a package
+          Object.keys(value).forEach(function(locKey) {
+            var locValue = value[locKey];
+            if (typeof locValue === 'string') {
+              opts.locations[locKey] = locValue;
+            } else {
+              // A package config, set up a shortcut lookup for it.
+              if (locValue
+            }
+          });
+        } else {
+          deepPropMix(opts, key, options[key]);
+        }
+      }.bind(this));
+    },
+
     createEntry: function(normalizedName, parentEntry) {
       var entry = {
         name: normalizedName,
@@ -6076,9 +6142,8 @@ var parse;
         address: undefined,
         source: undefined,
         _loader: createLoaderPair({
-          parent: this,
           refererName: normalizedName
-        }).privateLoader
+        }, this).privateLoader
       };
 
       entry.whenFulfilled = new Promise(function(resolve, reject) {
@@ -6437,10 +6502,10 @@ waitInterval config
     // END MIRROR OF PUBLIC API
   };
 
-  function createLoaderPair(options) {
+  function createLoaderPair(options, parentPrivateLoader) {
     options = options || {};
 
-    var privateLoader = new PrivateLoader(options);
+    var privateLoader = new PrivateLoader(options, parentPrivateLoader);
 
     function module(name) {
       return privateLoader.getModule(name);
@@ -6468,10 +6533,22 @@ waitInterval config
       }
     }, true);
 
-    // Mix in loader prototype methods, to all them to be overridden?
-    mix(module, Loader.prototype, true);
-
     module.Loader = Loader;
+
+    // Mix in loader hooks from either the parent or from Loader.prototype
+    var baseHookProvider = (parentPrivateLoader &&
+                            parentPrivateLoader.moduleApi) || Loader.prototype;
+    hookNames.forEach(function(hookName) {
+        module[hookName] = baseHookProvider[hookName];
+    });
+
+    if (!parentPrivateLoader) {
+      module.config = function(options) {
+        return privateLoader.config(options);
+      };
+    }
+
+    privateLoader.config(options);
 
     // TODO: enable a debug flag, on script tag? that turns this tracking
     // on or off
