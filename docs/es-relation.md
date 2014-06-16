@@ -24,7 +24,7 @@ No import/export language syntax. APIs are used instead.
 
 It seems the primary goal for the import/export syntax was to compile/link time
 capabilities around export name checks and to allow other compile/link time
-features later.
+features later. It also helps with cycles.
 
 However, this new syntax has nontrivial cost:
 
