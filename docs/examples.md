@@ -54,6 +54,23 @@ add(1, 2);
 subtract(5, 3);
 ```
 
+### Dynamic references
+
+If dynamically choosing what module to use:
+
+```javascript
+var moduleId = 'speak';
+if (someCondition) {
+  moduleId = 'speak2';
+}
+
+module.use(moduleId, function(speak) {
+  speak('hello');
+}).catch(function(err) {
+  // Do something with the error here
+});
+```
+
 ### Inlining modules
 
 Modules may be inlined by just adding this kind of function wrapper around the module:
