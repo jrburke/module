@@ -486,12 +486,6 @@ var module;
 
           if (depEntry && !depEntry._moduleResolved && !processed[depName]) {
             if (hasProp(traced, depName)) {
-              // Track the ID as one needing a phantom.
-              if (!entry._cyclePhantoms) {
-                entry._cyclePhantoms = {};
-              }
-              entry._cyclePhantoms[depName] = true;
-
               // Fake the resolution of this dependency for the module,
               // by asking the DepResolver to pretend it is done. Only
               // want to pretend the dependency is done for this cycle
@@ -530,12 +524,9 @@ waitInterval config
         if (entry._moduleResolved) {
           return entry._loader._export;
         } else {
-          throw new Error('Circular dependency: ' +
-                          this._loader._refererName +
-                          ' depends on ' + normalizedName +
-                          ' which has not been defined because' +
-                          ' of a cycle. Best to reauthor the' +
-                          ' module relationship.');
+          // NOTE: here is where a special proxy or something could go
+          // to improve cycles.
+          return entry._loader._export;
         }
       }
 
