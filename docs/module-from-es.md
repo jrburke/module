@@ -8,7 +8,7 @@ This project reuses a lot of thinking that has gone into the ECMAScript 6 module
 
 They are motivated by the following reasons:
 
-* [import syntax disparity with System.import](import-syntax-disparity-with-system.import)
+* [import syntax disparity with System.import](#import-syntax-disparity-with-systemimport)
 * [Solves the moduleMeta problem](#solves-the-modulemeta-problem)
 * [Solves nested modules and allows inlining](#solves-nested-modules-and-allows-inlining)
 * [Easy for base libraries to opt in to ES modules](#easy-for-base-libraries-to-opt-in-to-es-modules)
@@ -22,9 +22,11 @@ It has these tradeoffs:
 
 ### Parse for module instead of import/export
 
-To find dependencies, parse for `module(StringLiteral)` instead of `import` syntax. Otherwise, fetch and execute the dependencies first before the current module body, as `import` would do.
+To find dependencies, parse for `module(StringLiteral)` instead of `import` syntax. Fetch and execute the dependencies first before the current module body, as `import` would do.
 
-Instead of `export` syntax, `module.export = ` is used to assign a default export, and `module.export.something = {}` is used if an export object created by the loader is desired for reuse.
+Instead of `export` syntax, `module.export = ` is used to assign a default export, and `module.export.something = {}` is used if an export object created by the loader is desired for reuse, and that type of property assignment is preferred by the module author.
+
+End result is no longer needing new syntax to express module relationships, but the module API is used instead.
 
 ### Each module body gets its own unique module object
 
@@ -33,7 +35,7 @@ Each module body will get its own unique `module` object to use at runtime for t
 * So that relative module ID references work at runtime. This is important for `module.use()`.
 * Getting "moduleMeta" module metadata, like the ID of the module, the URL and the directory. This are used regularly by modules. For Node code, `__dirname` and `__filename` are examples of this kind of data, and in AMD code, `module.id` is useful for setting up prefixes for DOM elements, names of custom elements, items that end up in the global space.
 
-During runtime execution of the module body, `module(StringLiteral)` behaves similar to `System.get`. However there is no more `System`, each unique `module` object handles the equivalent API, and there is a top `module` reference.
+During runtime execution of the module body, `module(StringLiteral)` behaves similar to `System.get`. However there is no more `System`, each unique `module` object handles the equivalent API, and there is a top `module` object.
 
 ### Use function wrapping for module scope
 
@@ -65,12 +67,11 @@ module.define('a', function(module) {
 });
 ```
 
-This gives the module its own scope, but then also specifies a way to inline modules now. This is useful for small module setup that differ, and for use in bundling.
+This gives the module its own scope, but then also specifies a way to inline modules now. This is useful for some module bootstrapping situations, like tests, and for use in bundling.
 
-It also makes sense conceptually: module definitions can be nested now just like function definitions can be inlined. This has now turned out to be a real world case as some libraries are now bundles of AMD or browserified modules internally, but provide an aggregated single module view to modules consuming that file.
+It also makes sense conceptually: module definitions can be nested now just like function definitions can be inlined. This has now a real world case: some libraries are now bundles of AMD or browserified modules internally, but provide an aggregated single module view to modules consuming that file.
 
 The nested definitions are discussed more in the [Story Time document](https://github.com/jrburke/module/blob/master/docs/story-time.md).
-
 
 ## Reasons
 
@@ -97,13 +98,14 @@ However, as export setting has been used in CommonJS and AMD modules, it just me
 
 ```javascript
 import "a";
+// `this` in this example is the "moduleMeta" object
 let a = this.get('a');
 a.propExport();
 ```
 
 ### Solves the moduleMeta problem
 
-The existing ES6 module draft has been missing this for a while. `this` is not a stable value, to easily affected by internal scope changes in a module body. A named variable that has a unique value for each module is better, and it has already been used in practice for CommonJS and AMD modules, so it has some field testing.
+The existing ES6 module draft has been missing this for a while. Trying to use `this` for that object is risky. It is too easily affected by internal scope changes in a module body. A named variable that has a unique value for each module is better, and it has already been used in practice for CommonJS and AMD modules, so the concept has some fairly extensive field testing.
 
 By formalizing the internal function wrapping that is done, it also makes it clear from an execution standpoint how that module object comes into being.
 
@@ -113,7 +115,7 @@ For the rare script that has a conflict in meaning, the Loader API can have a co
 
 Since each `module`-based module gets its own function wrapping, even if that script clobbers some global definition, the individual modules still work and are loaded correctly in the module loader, since they have their own function wrapping and are scoped to see the loader.
 
-QUnit was given as an example of a problematic script. However, QUnit does not work if async loaded, and it also provides is `module` API at `QUnit.module`. Modules are free to still use `module` even when loaded. There is an example in test/demo/qunit.
+QUnit was given as an example of a problematic script. However, QUnit does not work if async loaded, so likely will need to be a plain blocking script tag, and it also provides is `module` API at `QUnit.module`. Modules are free to still use `module` even when QUnit is already loaded. There is an example in test/demo/qunit.
 
 ### Solves nested modules and allows inlining
 
@@ -125,7 +127,7 @@ This also means effective optimization of modules does not need to have dependen
 
 ### Easy for base libraries to opt in to ES modules
 
-This is one of the biggest benefits to this API approach. Base libraries (examples: jQuery, underscore, Backbone), can opt into supporting ES6 modules without needing two separate versions of their library. That complicates their release and distribution patterns, just creates more confusion.
+This is one of the biggest benefits to this API approach. Base libraries (examples: jQuery, underscore, Backbone), can opt into supporting ES6 modules without needing two separate versions of their library. Two separate files complicates their release, distribution and consumption patterns, just creates more confusion.
 
 I believe the existing solution for ES6 modules is to suggest a smart loader bootstrap script which can either provide an AMD/CommonJS API, or do other loader tricks.
 
@@ -143,7 +145,7 @@ The `import` syntax allowed for a very special, module body-local indirection of
 
 It would be good to see more language thinking around how some sort of indirection approach could still be adapted for `module`. The [Cycles document](https://github.com/jrburke/module/blob/master/docs/cycles.md) goes into some speculation about that.
 
-However, even if it does not work out, cycles are a minority use case module relationship. The above benefits outweigh the cost in this tradeoff. Plus, the loader has targeted information about a cycle case, and if it is a problem, give specific advice on how to fix.
+However, even if it does not work out, cycles are a minority use case module relationship. The above benefits outweigh the cost of this tradeoff. Plus, the loader has targeted information about a cycle case, and if it is a problem, give specific advice on how to fix.
 
 Since `module()` can be used in expressions, the solution is often to just use that form directly in the expressions that need the module reference. See the Cycles document for more information.
 
