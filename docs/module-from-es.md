@@ -2,21 +2,21 @@
 
 This project reuses a lot of thinking that has gone into the ECMAScript 6 modules effort so far, but suggests these changes:
 
-* Parse for module instead of import/export
-* Each module body gets its own unique module object
-* Use function wrapping for module scope
+* [Parse for module instead of import/export](parse-for-module-instead-of-importexport)
+* [Each module body gets its own unique module object](each-module-body-gets-its-own-unique-module-object)
+* [Use function wrapping for module scope](use-function-wrapping-for-module-scope)
 
-These changes are done for the following reasons:
+They are motivated by the following reasons:
 
-* import syntax disparity with System.import
-* Solves the moduleMeta problem
-* Solves nested modules and allows inlining
-* Easy for base libraries to opt in to ES modules
+* [import syntax disparity with System.import](import-syntax-disparity-with-system.import)
+* [Solves the moduleMeta problem](#solves-the-modulemeta-problem)
+* [Solves nested modules and allows inlining](#solves-nested-modules-and-allows-inlining)
+* [Easy for base libraries to opt in to ES modules](#easy-for-base-libraries-to-opt-in-to-es-modules)
 
 It has these tradeoffs:
 
-* Cycle support
-* Export name checking
+* [Cycle support](#cycle-support)
+* [Export name checking](#export-name-checking)
 
 ## Changes
 
@@ -49,7 +49,7 @@ module.export = {
 
 The loader wraps that body before executing in a function wrapper like so:
 
-```
+```javascript
 // This is what the module loader executes internally.
 // The `module` in `module.define` is the loader that owns
 // this module, the `module` passed in to the define factory
@@ -63,6 +63,7 @@ module.define('a', function(module) {
     b: module('b')
   };
 });
+```
 
 This gives the module its own scope, but then also specifies a way to inline modules now. This is useful for small module setup that differ, and for use in bundling.
 
@@ -153,5 +154,3 @@ With statically identifiable `import` and `export` use, the names of export prop
 This is a very small benefit, and is even less useful with default exports, which will be a common module pattern. Linters and editors can still provide some of these benefits by looking at common code patterns.
 
 It is also a very shallow benefit, and does not allow checking of second order poperties, like constructor function prototype methods. Again, linters and editors are likely to provide more value there.
-
-
