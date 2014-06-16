@@ -7,6 +7,6 @@ The JavaScript module system of my dreams. Based on building other module system
 * [Examples](https://github.com/jrburke/module/blob/master/docs/examples.md)
 * [Cycles](https://github.com/jrburke/module/blob/master/docs/cycles.md): Deeper dive on cycles, circular dependencies.
 
-* [module from an ECMAScript perspective](https://github.com/jrburke/module/blob/master/docs/module-from-es.md)
-* [module from an AMD perspective](https://github.com/jrburke/module/blob/master/docs/module-from-amd.md)
-* [module from a CommonJS perspective](https://github.com/jrburke/module/blob/master/docs/module-from-cjs.md)
+* [`module` from an ECMAScript perspective](https://github.com/jrburke/module/blob/master/docs/module-from-es.md)
+* [`module` from an AMD perspective](https://github.com/jrburke/module/blob/master/docs/module-from-amd.md)
+* [`module` from a CommonJS perspective](https://github.com/jrburke/module/blob/master/docs/module-from-cjs.md)
