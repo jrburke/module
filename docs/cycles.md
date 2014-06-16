@@ -1,8 +1,24 @@
 # Cycles
 
-## Polyfill background
+## Experiments in this repo
 
-The [cycles branch](https://github.com/jrburke/module/tree/config) has an experiment in cycle support:
+The master branch supports cycles by allowing `module(StringLiteral)` in expressions, so cycles work out via that indirection:
+
+```javascript
+// in even.js
+module.export = function even(n) {
+  return n == 0 || module('odd')(n - 1);
+}
+
+// in odd.js
+module.export = function odd(n) {
+  return n != 0 && module('even')(n - 1);
+}
+```
+
+It also supports modules using the `module.export` to just attach properties to it, so that the default object created for the `module.export` can be held onto by other modules. This is similar support to what is in CommonJS and AMD modules today. The master branch also has information that it could give the user a very specific error and remedies to fix cycles that were a problem.
+
+The [cycles branch](https://github.com/jrburke/module/tree/config) has more experimental cycle support that allows more flexibility:
 
 **Only if a cycle is detected**, just for the module that needs a cycle reference, mark that dependency as a cycle.
 
