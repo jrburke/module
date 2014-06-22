@@ -352,6 +352,8 @@ testLoader.define('xhr', function(module) {
 testLoader.use('testXhr');
 ```
 
+For more background on the other advantages of inlining, see the [inlining doc](https://github.com/jrburke/module/blob/master/docs/inlining.md).
+
 ## Contained scope
 
 With inline modules, we see how each module can get its own scope via the factory function. Dynamically loaded modules should get their own scope too, and still be able to see the regular globals for the system. For the browser, this means globals like `document` and `window`.
@@ -434,10 +436,13 @@ module.define('jquery.effectize', function(module) {
 
 While this form of nested modules should only be built by build tools, and should not be something that is regularly hand-authored, we still need to define the behavior for it.
 
+## Cycles
+
+What to do about circular dependencies, otherwise known as cycles? The [cycles doc](https://github.com/jrburke/module/blob/master/docs/cycles.md) explores the design forces in play around them.
+
 ## Fin
 
 That is where the story ends for now. It would be good to expand the story later to include:
 
-* Cycles
 * Other types of dependencies
 * Loader hooks
