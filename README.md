@@ -8,6 +8,7 @@ The JavaScript module system of my dreams. Based on building other module system
 * [Cycles](https://github.com/jrburke/module/blob/master/docs/cycles.md) - Deeper dive on cycles, circular dependencies.
 * [Inlining](https://github.com/jrburke/module/blob/master/docs/inlining.md) -  The case for module inlining.
 
+
 * [`module` from an ECMAScript perspective](https://github.com/jrburke/module/blob/master/docs/module-from-es.md)
 * [`module` from an AMD perspective](https://github.com/jrburke/module/blob/master/docs/module-from-amd.md)
 * [`module` from a CommonJS perspective](https://github.com/jrburke/module/blob/master/docs/module-from-cjs.md)
