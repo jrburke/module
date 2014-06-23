@@ -111,7 +111,7 @@ Modules are a way to reuse units of code. They can be loaded dynamically, and ca
 
 Functions are also reusable units of code. Just as nested functions limit the visibility of that reuse, modules should allow a similar scoped visibility.
 
-A great example of this is how Node installs dependencies in nested node_modules directories, and how Browserify combines those modules into a package. If nested modules were available, the browserified file would match the same type of scoping reflected in the nested node_modules file layout.
+A great example of this is how Node installs dependencies in nested node_modules directories, and how [Browserify](http://browserify.org/) combines those modules into a package. If nested modules were available, the browserified file would match the same type of scoping reflected in the nested node_modules file layout.
 
 As it works now, Browserify needs to keep a registry of "if this module asks for "a", give it the module in this slot". Same situation for AMD module use case (but expressed in [map config](https://github.com/amdjs/amdjs-api/blob/master/CommonConfig.md#map-).
 
