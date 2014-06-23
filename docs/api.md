@@ -78,7 +78,7 @@ need dynamically loaded dependencies), `module(StringLiteral)` in the same
 module cannot be used to grab a local module and use it in its export.
 
 Instead, there should be a local module that does a `module.define()` to set up
-the desired export, and `module.exportFromLocal()` should be used to
+the desired export, and `module.exportDefine()` should be used to
 specify the factory function that will give the final module value.
 
 ```javascript
@@ -106,7 +106,7 @@ module.define('effects', function(module) {
 
 // THIS WILL WORK, since this factory function can be called once
 // all dependencies are met.
-module.exportFromLocal(function(module) {
+module.exportDefine(function(module) {
   var effects = module('effects');
   var $ = module('jquery');
   module.export = function applyEffectsToDom(selector) {
@@ -116,7 +116,7 @@ module.exportFromLocal(function(module) {
 ```
 
 If a module does not need a local module for immediate module export, then
-`module.exportFromLocal` does not need to be used.
+`module.exportDefine` does not need to be used.
 
 Additionally, if this is not a module body, but just a script in an HTML script
 tag, `module.use()` can be used to get access to these local modules.
@@ -189,7 +189,7 @@ This section is just a collection of notes/todos, just for repo developer use.
 Tests to write:
 
 * return a promise for a module value, make sure that works, promise unwrapping not in the way.
-* return a promise for a exportFromLocal case too, promise unwrapping not in the way.
+* return a promise for a exportDefine case too, promise unwrapping not in the way.
 * test that uses local modules top level and module.use().
 * test interop with normal scripts that do globals.
 
@@ -234,7 +234,7 @@ for it.
 
 * Hmm, will AMD-style loader plugins really work with existing ModuleLoader API? AMD plugin load() method right now allows fetching some dependencies to finish loading of the resource. These can get associated with the load for that resource, to allow cycle breaking, in AMD systems. Does that hold together here?
 
-* Store exportFromLocal factory in a special slot instead of using a special name.
+* Store exportDefine factory in a special slot instead of using a special name.
 
 * Generate useful errors with codes that can be looked up for fix advice.
 

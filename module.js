@@ -5530,11 +5530,11 @@ var parse;
     // Parses a possible module body for module API usage:
     // module(StringLiteral)
     // module.define()
-    // module.exportFromLocal()
+    // module.exportDefine()
     fromBody: function (bodyText, apiName) {
       // Convert to string, add parens around it so valid esprima
       // parse form.
-      var usesExportFromLocal = false,
+      var usesExportDefine = false,
           usesExport = false,
           astRoot = esprima.parse(bodyText),
           deps = [],
@@ -5566,10 +5566,10 @@ var parse;
           return false;
         }
 
-        // Look for module.exportFromLocal, since it indicates this code is
+        // Look for module.exportDefine, since it indicates this code is
         // a module, and needs a module function wrapping.
-        if (matchesCallExpression(node, apiName, 'exportFromLocal')) {
-          usesExportFromLocal = true;
+        if (matchesCallExpression(node, apiName, 'exportDefine')) {
+          usesExportDefine = true;
           return false;
         }
 
@@ -5586,8 +5586,8 @@ var parse;
       return {
         deps: deps,
         localModules: localModules,
-        usesExportFromLocal: usesExportFromLocal,
-        isModule: !!(deps.length || usesExportFromLocal || usesExport)
+        usesExportDefine: usesExportDefine,
+        isModule: !!(deps.length || usesExportDefine || usesExport)
       };
     },
 
@@ -5613,11 +5613,11 @@ var parse;
       isDebug = true;
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
-  var publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
+  var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
 
-  // Easy implementation solution for exportFromLocal for now, but will move
+  // Easy implementation solution for exportDefine for now, but will move
   // to a separate storage area for that factory function later to avoid this.
-  var specialExportLocalName = '__@exportFromLocal';
+  var specialExportLocalName = '__@exportDefine';
 
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
@@ -5839,7 +5839,7 @@ var parse;
         }
 
         Promise.cast().then(function () {
-          if (hasProp(localPrivateLoader, '_usesExportFromLocal')) {
+          if (hasProp(localPrivateLoader, '_usesExportDefine')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
             var entry = localPrivateLoader._entries[specialExportLocalName];
@@ -6123,8 +6123,8 @@ waitInterval config
     },
 
     setExport: function(value) {
-      if (hasProp(this, '_usesExportFromLocal')) {
-        throw new Error('module.exportFromLocal() already called');
+      if (hasProp(this, '_usesExportDefine')) {
+        throw new Error('module.exportDefine() already called');
       }
 
       this._hasSetExport = true;
@@ -6133,7 +6133,7 @@ waitInterval config
       this._export = value;
     },
 
-    exportFromLocal: function(fn) {
+    exportDefine: function(fn) {
       if (hasProp(this, '_hasSetExport')) {
         throw new Error('module.export already set');
       }
@@ -6143,7 +6143,7 @@ waitInterval config
       this.define(specialExportLocalName, fn);
 
       // TODO: throw if called after module is considered "defined"
-      this._usesExportFromLocal = true;
+      this._usesExportDefine = true;
     },
 
     define: function(name, fn) {

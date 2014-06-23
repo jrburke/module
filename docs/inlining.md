@@ -24,7 +24,7 @@ module.define('effects', function(module) {
   };
 });
 
-module.exportFromLocal(function(module) {
+module.exportDefine(function(module) {
   var effects = module('effects');
   var $ = module('jquery');
   module.export = function applyEffectsToDom(selector) {

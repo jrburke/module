@@ -403,7 +403,7 @@ Since each module gets its own `module` object, and `module.define` allows for i
 
 However, `module.export` cannot be used if the module definition depends on one of these nested modules. Module definition is resolved async and the loader may even need to dynamically load a dependency to complete the definition.
 
-We will use a new export function to indicate locally defined modules are used. Call it `module.exportFromLocal`.
+We will use a new export function to indicate locally defined modules are used. Call it `module.exportDefine`.
 
 ```javascript
 module.define('jquery.effectize', function(module) {
@@ -422,7 +422,7 @@ module.define('jquery.effectize', function(module) {
     })
   });
 
-  module.exportFromLocal(function(module) {
+  module.exportDefine(function(module) {
     var effects = module('effects');
     // 'jquery' is dynamically loaded by module.top since
     // it is not in the outer nesting of modules.
