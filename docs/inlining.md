@@ -77,11 +77,13 @@ Inlining is seen as a way to get bundling for performance, to reduce the number 
 
 There are definitely types of web apps/sites that will benefit from SPDY/HTTP2, but they will need specialized server setups. Besides just baseline SPDY/HTTP2 support, the SPDY/HTTP2 pipeline will need a specialized adapter to know how to trace module dependencies so that it can push the nested dependencies to the client.
 
-For use cases that want flexibility in deployment, and the cheapest hosting options, bundling will still give the easiest, most straightforward way to improve performance related to reduced HTTP requests. It can even be done offline, as part of initial deployment, so that the server just needs to be a simple file server.
+A specialized server adapter could be avoided by doing a module loader modification to inform the loader running in the browser of the dependency tree. This allows the module loader to "pull" the nested dependencies in one set of requests. It requires the loader to know the dependency tree up front before fetching modules.
+
+For use cases that want flexibility in deployment, and the cheapest hosting options, bundling will still give the easiest, most straightforward way to improve performance related to reduced HTTP requests. Inlining can be done offline, as part of initial deployment, and the server just needs to be a simple file server.
 
 There are deployments that do not use a server for the UI pieces, like mobile devices installing an app that works offline. Those use cases are still under local file IO speed constraints. Based on experience working on FirefoxOS, the device IO profile still benefitted from module bundling because multiple local file reads were still slower than one file read with inlined modules.
 
-The push mechanism of SPDY/HTTP2 just seeds cache entries in the browser, it could still result in multiple file reads. For some use cases (dynamic site entry points that need different sets of overlapping module cross-sections), the SPDY/HTTP2 may still be beneficial. However, for other types, like a single page web app that wants async JS logic to complete as fast as possible to choose a UI path, bundling will still be more effective, with fewer local file IO reads.
+The SPDY/HTTP2 approach just seeds cache entries in the browser, it could still result in multiple file reads. For some use cases (dynamic site entry points that need different sets of overlapping module cross-sections), the SPDY/HTTP2 pathway can be beneficial. However, for other cases, like a single page web app that wants async JS logic to complete as fast as possible to choose a UI path, bundling will still be more effective, with fewer local file IO reads.
 
 ### Packaged Format
 
