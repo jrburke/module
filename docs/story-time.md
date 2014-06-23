@@ -438,7 +438,7 @@ While this form of nested modules should only be built by build tools, and shoul
 
 ## Cycles
 
-What to do about circular dependencies, otherwise known as cycles? The [cycles doc](https://github.com/jrburke/module/blob/master/docs/cycles.md) explores the design forces in play around them.
+What to do about circular dependencies, otherwise known as cycles? The [cycles doc](https://github.com/jrburke/module/blob/master/docs/cycles.md) has a deeper dive on that topic.
 
 ## Fin
 
