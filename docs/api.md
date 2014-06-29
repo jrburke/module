@@ -203,6 +203,8 @@ TODOS:
 
 * Test for loading just a set of named module.define modules
 
+* Test for loading a module with just a module.exportDefine, how dependencies work in that case. Should work, just need test in place to verify against future changes.
+
 * declarative config easier for tools to read, for autocomplete. add in loader.config() for top level module objects only, using AMD-inspired config as baseline. Accessible via module.top.config();
 
 * When config is in: update qunit example for an override of module wrapping. Also for strict settings.
