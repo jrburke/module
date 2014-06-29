@@ -22,13 +22,14 @@ var module;
   var Promise = prim,
       aslice = Array.prototype.slice,
       _allLoaders = [],
-      isDebug = true,
-      hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'],
-      publicModuleApis = ['exportFromLocal', 'define', 'use', 'has', 'delete'];
+      isDebug = true;
 
-  // Easy implementation solution for exportFromLocal for now, but will move
+  var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
+  var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
+
+  // Easy implementation solution for exportDefine for now, but will move
   // to a separate storage area for that factory function later to avoid this.
-  var specialExportLocalName = '__@exportFromLocal';
+  var specialExportLocalName = '__@exportDefine';
 
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
@@ -284,7 +285,7 @@ var module;
         }
 
         Promise.cast().then(function () {
-          if (hasProp(localPrivateLoader, '_usesExportFromLocal')) {
+          if (hasProp(localPrivateLoader, '_usesExportDefine')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
             var entry = localPrivateLoader._entries[specialExportLocalName];
@@ -551,12 +552,6 @@ var module;
 
           if (depEntry && !depEntry._moduleResolved && !processed[depName]) {
             if (hasProp(traced, depName)) {
-              // Track the ID as one needing a phantom.
-              if (!entry._cyclePhantoms) {
-                entry._cyclePhantoms = {};
-              }
-              entry._cyclePhantoms[depName] = true;
-
               // Fake the resolution of this dependency for the module,
               // by asking the DepResolver to pretend it is done. Only
               // want to pretend the dependency is done for this cycle
@@ -595,12 +590,9 @@ waitInterval config
         if (entry._moduleResolved) {
           return entry._loader._export;
         } else {
-          throw new Error('Circular dependency: ' +
-                          this._loader._refererName +
-                          ' depends on ' + normalizedName +
-                          ' which has not been defined because' +
-                          ' of a cycle. Best to reauthor the' +
-                          ' module relationship.');
+          // NOTE: here is where a special proxy or something could go
+          // to improve cycles.
+          return entry._loader._export;
         }
       }
 
@@ -609,8 +601,8 @@ waitInterval config
     },
 
     setExport: function(value) {
-      if (hasProp(this, '_usesExportFromLocal')) {
-        throw new Error('module.exportFromLocal() already called');
+      if (hasProp(this, '_usesExportDefine')) {
+        throw new Error('module.exportDefine() already called');
       }
 
       this._hasSetExport = true;
@@ -619,7 +611,7 @@ waitInterval config
       this._export = value;
     },
 
-    exportFromLocal: function(fn) {
+    exportDefine: function(fn) {
       if (hasProp(this, '_hasSetExport')) {
         throw new Error('module.export already set');
       }
@@ -629,7 +621,7 @@ waitInterval config
       this.define(specialExportLocalName, fn);
 
       // TODO: throw if called after module is considered "defined"
-      this._usesExportFromLocal = true;
+      this._usesExportDefine = true;
     },
 
     define: function(name, fn) {

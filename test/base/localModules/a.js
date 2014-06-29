@@ -25,7 +25,7 @@ module.define('grouped', function(module) {
     };
 });
 
-module.exportFromLocal(function(module) {
+module.exportDefine(function(module) {
   module.export = {
     name: 'a',
     grouped: module('grouped')

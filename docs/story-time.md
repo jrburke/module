@@ -352,6 +352,8 @@ testLoader.define('xhr', function(module) {
 testLoader.use('testXhr');
 ```
 
+For more background on the other advantages of inlining, see the [inlining doc](https://github.com/jrburke/module/blob/master/docs/inlining.md).
+
 ## Contained scope
 
 With inline modules, we see how each module can get its own scope via the factory function. Dynamically loaded modules should get their own scope too, and still be able to see the regular globals for the system. For the browser, this means globals like `document` and `window`.
@@ -401,7 +403,7 @@ Since each module gets its own `module` object, and `module.define` allows for i
 
 However, `module.export` cannot be used if the module definition depends on one of these nested modules. Module definition is resolved async and the loader may even need to dynamically load a dependency to complete the definition.
 
-We will use a new export function to indicate locally defined modules are used. Call it `module.exportFromLocal`.
+We will use a new export function to indicate locally defined modules are used. Call it `module.exportDefine`.
 
 ```javascript
 module.define('jquery.effectize', function(module) {
@@ -420,7 +422,7 @@ module.define('jquery.effectize', function(module) {
     })
   });
 
-  module.exportFromLocal(function(module) {
+  module.exportDefine(function(module) {
     var effects = module('effects');
     // 'jquery' is dynamically loaded by module.top since
     // it is not in the outer nesting of modules.
@@ -434,10 +436,13 @@ module.define('jquery.effectize', function(module) {
 
 While this form of nested modules should only be built by build tools, and should not be something that is regularly hand-authored, we still need to define the behavior for it.
 
+## Cycles
+
+What to do about circular dependencies, otherwise known as cycles? The [cycles doc](https://github.com/jrburke/module/blob/master/docs/cycles.md) has a deeper dive on that topic.
+
 ## Fin
 
 That is where the story ends for now. It would be good to expand the story later to include:
 
-* Cycles
 * Other types of dependencies
 * Loader hooks
