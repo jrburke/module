@@ -62,12 +62,15 @@ What if those are moduleConfig options to the loader plugins? That means having 
 
 The general format for a "locations" config entry. The < > parts indicate logical names for parts that may show up. Parts that end in ?> are optional.
 
-    <id-segment></?> : <urlpath-segment><[main:<id-segment>]?>
+    <id-segment></?> : <urlpath-segment><@main:<id-segment>?>
 
 * The `</?>` part allows for point 6 above to work.
-* The `[main:<id-segment>]` allows specifying the main ID segment to append to the config's id-segment to fine the package main module, for point 5.
+* The `@main:<id-segment>` allows specifying the main ID segment to append to the config's id-segment to find the package main module, for point 5. If main: is specified, then <id-segment>/ is not allowed as the property name. `@main:` indicates a default value should be used. Equivalent to `@main:index`.
 * For 1, callers to loader's `locate` method pass a 'js' as the file extension, and `locate` applies the locations mapping to urlpath-segment, then adds the extension if it exists. For 3 and 4, loader plugins are expected to pull off the file extension from the ID, then call the loader's `locate` method with the extracted the extension.
 * For 2, this is a rarely needed config option, and supporting it means overriding the `locate` hook to just return a string without considering the fileExtension argument to `locate`.
+
+Passing a a value that is falsy (null, undefined, empty string, false), will be the way to clear a locations entry from a loader, in the case of a reset. Using undefined or empty string (if json) should be the preferred ways to indicate a reset of a location value.
+
 
 ### locate module loader method accepts suffix
 
@@ -79,10 +82,13 @@ locate: function(entry, fileExtension) {
 }
 ```
 
-Is it possible to remove thee need for the fileExtension argument, and allow the caller to add it as they see fit? To support design point 2, there needs to be a way to support it via a one method override. Otherwise, the caller of locate -- the default module system that would want to append '.js' and individual loader plugins -- would need to be informed somehow of the overrided. This would be more complicated than this signature change to `locate`.
+Is it possible to remove the need for the fileExtension argument, and allow the caller to add it as they see fit? To support design point 2, there needs to be a way to support it via a one method override. Otherwise, the caller of locate -- the default module system that would want to append '.js' and individual loader plugins -- would need to be informed somehow of the overrided. This would be more complicated than this signature change to `locate`.
 
 fileExtension is optional, and if it is not a string, then it is not appended. This allows `locate` to be used to find the directory location of a module ID prefix.
 
+### cache expiry
+
+If want to cache bust, override locate: hook, call the main one then append what you want.
 
 
 

@@ -192,7 +192,7 @@ var module;
 
     if (!entry._registered) {
       entry._fetching = true;
-      Promise.cast(loader.moduleApi.locate(entry))
+      Promise.cast(loader.moduleApi.locate(entry, 'js'))
         .then(function(address) {
           entry.address = address;
 
@@ -357,10 +357,19 @@ var module;
   }
 
   PrivateLoader.prototype = {
+    _privateConfigNames: {
+      _locationParts: true,
+      _mainIds: true
+    },
+
     config: function(options) {
       var opts = this.options;
 
       Object.keys(options).forEach(function(key) {
+        if (hasProp(this._privateConfigNames, key)) {
+          return;
+        }
+
         var value = options[key];
         if (options.createHooks) {
           // Wire up hooks
@@ -371,13 +380,43 @@ var module;
           });
         } else if (key === 'locations') {
           // Look for a package
+          var locationParts = opts._locationParts ?
+                               opts._locationParts : (opts._locationParts = {});
+          var mainIds = opts._mainIds ?
+                        opts._mainIds : (opts._mainIds = {});
+
           Object.keys(value).forEach(function(locKey) {
             var locValue = value[locKey];
-            if (typeof locValue === 'string') {
-              opts.locations[locKey] = locValue;
+            if (!locValue) {
+              delete locationParts[locValue];
+              delete mainIds[locValue];
             } else {
-              // A package config, set up a shortcut lookup for it.
-              if (locValue
+              var pkgParts = locValue.split('@main:'),
+                  partLength = pkgParts.length;
+              if (partLength === 1) {
+                locationParts[locKey] = locValue;
+              } else if (partLength === 2) {
+                var path = pkgParts[0];
+                if (locKey.lastIndexOf('/') === locKey.length - 1) {
+                  throw new Error('Malformed location property: ' +
+                    locKey +
+                    '. If specifying \'@main:\', ' +
+                    'then the value cannot end in a /');
+                }
+                if (path.lastIndexOf('/') === path.length - 1) {
+                  throw new Error('Malformed location property value for: ' +
+                    locKey +
+                    ':\'' + path +
+                    '\'. Do not specify / before the [main:] section');
+                }
+
+                locationParts[locKey] = path + '/';
+
+                mainIds[locKey] = locKey + '/' + (pkgParts[1] || 'index');
+              } else {
+                throw new Error('Malformed location, ' +
+                                locKey + ': ' + locValue);
+              }
             }
           });
         } else {
@@ -816,10 +855,12 @@ waitInterval config
       return name;
     },
 
-    locate: function(entry) {
+    locate: function(entry, extension) {
       // entry: name, metadata
 
-      return entry.name + '.js';
+
+
+      return entry.name + (extension  ? '.' + extension : '');
     },
 
     fetch: function(entry) {
