@@ -348,6 +348,11 @@ var module;
       this.options = this._parent.options;
     } else {
       this.options = {
+        // private properties
+        _normalizedLocations: {},
+        _mainIds: {},
+
+        // properties that map directly to public config
         baseUrl: '',
         locations: {},
         alias: {},
@@ -358,7 +363,7 @@ var module;
 
   PrivateLoader.prototype = {
     _privateConfigNames: {
-      _locationParts: true,
+      _normalizedLocations: true,
       _mainIds: true
     },
 
@@ -380,42 +385,47 @@ var module;
           });
         } else if (key === 'locations') {
           // Look for a package
-          var locationParts = opts._locationParts ?
-                               opts._locationParts : (opts._locationParts = {});
-          var mainIds = opts._mainIds ?
-                        opts._mainIds : (opts._mainIds = {});
+          var normalizedLocations = opts._normalizedLocations;
+          var mainIds = opts._mainIds;
 
           Object.keys(value).forEach(function(locKey) {
-            var locValue = value[locKey];
+            var mainId,
+                locValue = value[locKey];
+
+            // Update public-matching config inside loader, then break it
+            // apart for more efficient internal use.
+            opts.locations[locKey] = locValue;
+
+            // Separate the main sub-ID for a package, if specified
+            var keyParts = locKey.split('{');
+            if (keyParts.length === 2) {
+              locKey = keyParts[0];
+              mainId = locKey + '/' +
+                       keyParts[1].substring(0, keyParts[1].length - 1);
+            }
+
             if (!locValue) {
-              delete locationParts[locValue];
-              delete mainIds[locValue];
+              delete normalizedLocations[locKey];
+              delete mainIds[locKey];
             } else {
-              var pkgParts = locValue.split('@main:'),
-                  partLength = pkgParts.length;
-              if (partLength === 1) {
-                locationParts[locKey] = locValue;
-              } else if (partLength === 2) {
-                var path = pkgParts[0];
-                if (locKey.lastIndexOf('/') === locKey.length - 1) {
-                  throw new Error('Malformed location property: ' +
-                    locKey +
-                    '. If specifying \'@main:\', ' +
-                    'then the value cannot end in a /');
-                }
-                if (path.lastIndexOf('/') === path.length - 1) {
-                  throw new Error('Malformed location property value for: ' +
-                    locKey +
-                    ':\'' + path +
-                    '\'. Do not specify / before the [main:] section');
-                }
+              normalizedLocations[locKey] = locValue;
 
-                locationParts[locKey] = path + '/';
+              if (mainId) {
+                mainIds[locKey] = mainId;
 
-                mainIds[locKey] = locKey + '/' + (pkgParts[1] || 'index');
+                // If a locKey/ value specified, delete it, package config
+                // takes precedence
+                delete normalizedLocations[locKey + '/'];
               } else {
-                throw new Error('Malformed location, ' +
-                                locKey + ': ' + locValue);
+                // This new plain path config is now the config, remove any
+                // package config if it existed before.
+                if (hasProp(mainIds, locKey)) {
+                  delete mainIds[locKey];
+                  if (locKey.lastIndexOf('/') === locKey.length - 1) {
+                    delete normalizedLocations[locKey.substring(0,
+                                                      locKey.length - 1)];
+                  }
+                }
               }
             }
           });
@@ -852,12 +862,15 @@ waitInterval config
   Loader.prototype = {
     // START module lifecycle events
     normalize: function(name /*, refererName, refererAddress */) {
+
+      // TODO: look at this.options._mainIds
       return name;
     },
 
     locate: function(entry, extension) {
       // entry: name, metadata
 
+      // TODO: look at this.options._normalizedLocations
 
 
       return entry.name + (extension  ? '.' + extension : '');

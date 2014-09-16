@@ -60,12 +60,14 @@ What if those are moduleConfig options to the loader plugins? That means having 
 
 ### locations config format
 
-The general format for a "locations" config entry. The < > parts indicate logical names for parts that may show up. Parts that end in ?> are optional.
+The general format for a "locations" config entry. The < > parts indicate logical names for parts that may show up. Three types of ID-segment specifiers can be used
 
-    <id-segment></?> : <urlpath-segment><@main:<id-segment>?>
+    <id-segment> : <urlpath-segment> - Matches id-segment and id-segment/sub, unless second form is set
+    <id-segment>/ : <urlpath-segment> - Matches only id-segment/sub IDs
+    <id-segment>{main-sub-id} : <urlpath-segment> - package config. Cannot use the others, since pkg/sub may ask for ./index.
 
-* The `</?>` part allows for point 6 above to work.
-* The `@main:<id-segment>` allows specifying the main ID segment to append to the config's id-segment to find the package main module, for point 5. If main: is specified, then <id-segment>/ is not allowed as the property name. `@main:` indicates a default value should be used. Equivalent to `@main:index`.
+* `<id-segment>/` allows for point 6 above to work.
+* The `<id-segment>{main-sub-id}` allows specifying the main ID segment to append to the config's id-segment to find the package main module, for point 5. This form is mutually exclusive to the others -- if this form is used, the other types are not used, and vice versa. Last specified form wins.
 * For 1, callers to loader's `locate` method pass a 'js' as the file extension, and `locate` applies the locations mapping to urlpath-segment, then adds the extension if it exists. For 3 and 4, loader plugins are expected to pull off the file extension from the ID, then call the loader's `locate` method with the extracted the extension.
 * For 2, this is a rarely needed config option, and supporting it means overriding the `locate` hook to just return a string without considering the fileExtension argument to `locate`.
 
@@ -90,5 +92,19 @@ fileExtension is optional, and if it is not a string, then it is not appended. T
 
 If want to cache bust, override locate: hook, call the main one then append what you want.
 
+## packages
+
+* main values are really module IDs (see inlined case)
+* Only need to know really before builds, for location lookups
+* but if non-built, then need to know 'pkg' points to the main.
+* Awkward to separate the main ID from the location info if both might be needed.
+
+So just specify in locations.
+
+Internally, do NOT use map config, but instead use the normalize hook to normalize the value to the main module.
+
+map config is not used to avoid precedence issues and conflicting with other map configs.
+
+Also a bit wordy to specify map config for pkg and pkg/.
 
 
