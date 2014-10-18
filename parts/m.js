@@ -22,7 +22,8 @@ var module;
   var Promise = prim,
       aslice = Array.prototype.slice,
       _allLoaders = [],
-      isDebug = true;
+      isDebug = true,
+      pluginSeparator = '!';
 
   var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
   var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
@@ -34,6 +35,10 @@ var module;
   var hasOwn = Object.prototype.hasOwnProperty;
   function hasProp(obj, prop) {
       return hasOwn.call(obj, prop);
+  }
+
+  function getOwn(obj, prop) {
+      return hasProp(obj, prop) && obj[prop];
   }
 
   function slice(arrayLike) {
@@ -49,7 +54,6 @@ var module;
     });
     return target;
   }
-
 
   function deepPropMix(dest, key, value) {
     // This test probably not spec shiny
@@ -83,6 +87,37 @@ var module;
     return dest;
   }
 
+  /**
+   * Trims the . and .. from an array of ID segments.
+   * Throws if it ends up with a '..' at the beginning. This is about resolving
+   * IDs, and '..' at the beginning of an absolute ID does not make sense.
+   * NOTE: this method MODIFIES the input array.
+   * @param {Array} ary the array of path segments.
+   */
+  function trimDots(ary) {
+      var i, part;
+      for (i = 0; i < ary.length; i++) {
+          part = ary[i];
+          if (part === '.') {
+              ary.splice(i, 1);
+              i -= 1;
+          } else if (part === '..') {
+              // If at the start, or previous value is still ..,
+              // keep them so that when converted to a path it may
+              // still work when converted to a path, even though
+              // as an ID it is less than ideal. In larger point
+              // releases, may be better to just kick out an error.
+              if (i === 0) {
+                  throw new Error('Cannot resolve ID segment: ' +
+                                   ary.join('/') +
+                                   ', .. is outside module ID space');
+              } else if (i > 0) {
+                  ary.splice(i - 1, 2);
+                  i -= 2;
+              }
+          }
+      }
+  }
 
   function fetchText(address) {
     return new Promise(function(resolve, reject) {
@@ -861,19 +896,90 @@ waitInterval config
   // to the Loader instance function.
   Loader.prototype = {
     // START module lifecycle events
-    normalize: function(name /*, refererName, refererAddress */) {
+    normalize: function(name, refererName, refererAddress) {
+      var nameParts = name.split('/');
 
-      // TODO: look at this.options._mainIds
-      return name;
+      if (nameParts[0].charAt(0) === '.') {
+
+        if (refererName) {
+          var refParts = refererName.split('/');
+          //Convert refererName to array, and lop off the last part,
+          //so that . matches that 'directory' and not name of the refererName's
+          //module. For instance, refererName of 'one/two/three', maps to
+          //'one/two/three.js', but we want the directory, 'one/two' for
+          //this normalization.
+          name = refParts.slice(0, refParts.length - 1).concat(name);
+        } else if (name.indexOf('./') === 0) {
+          // Just trim it off, already at the top of the module ID space.
+          name = name.substring(2);
+        } else {
+          throw new Error('Invalid ID, oustide of the module ID space: ' +
+                          name);
+        }
+      }
+
+      trimDots(name);
+      name = name.join('/');
+
+      // TODO: apply alias config.
+
+      // If the name points to a package's name, use the package main instead.
+      var pkgMain = getOwn(this.options._mainIds, name);
+
+      return pkgMain ? pkgMain : name;
     },
 
     locate: function(entry, extension) {
       // entry: name, metadata
+      var segment, pluginId, resourceId, name, separatorIndex,
+          location, slashIndex,
+          normalizedLocations = this.options._normalizedLocations;
 
-      // TODO: look at this.options._normalizedLocations
+      segment = name = entry.name;
+      separatorIndex = name.indexOf(pluginSeparator);
 
+      if (separatorIndex == -1) {
+        var firstPass = true;
+        while(segment) {
+          // If not the first pass match, then look for id + '/' matches,
+          // for location config that only matches children of a higher
+          // level ID. So locations config for 'a/b/' should only match 'a/b/c'
+          // and not 'a/b'.
+          if (!firstPass) {
+            var segmentPlusSlash = segment + '/';
+            if (hasProp(normalizedLocations, segmentPlusSlash)) {
+              location = normalizedLocations[segmentPlusSlash];
+              location = name.replace(segmentPlusSlash, location);
+              break;
+            }
+          }
+          if (hasProp(normalizedLocations, segment)) {
+            location = normalizedLocations[segment];
+            break;
+          }
+          slashIndex = segment.lastIndexOf('/');
+          if (slashIndex === -1) {
+            break;
+          }
+          firstPass = false;
+          segment = segment.substring(0, slashIndex);
+        }
 
-      return entry.name + (extension  ? '.' + extension : '');
+        if (!location) {
+          location = this.options.baseUrl + name;
+        }
+
+        if (extension) {
+          location += '.' + extension;
+        }
+
+        return location;
+      } else {
+        // TODO: load plugin and resolve
+        pluginId = name.substring(0, separatorIndex);
+        resourceId = name.substring(separatorIndex + 1);
+
+      }
     },
 
     fetch: function(entry) {
