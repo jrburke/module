@@ -5613,7 +5613,6 @@ var parse;
       isDebug = true,
       pluginSeparator = '!';
 
-  var hookNames = ['normalize', 'locate', 'fetch', 'translate', 'instantiate'];
   var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
 
   // Easy implementation solution for exportDefine for now, but will move
@@ -5762,10 +5761,10 @@ var parse;
     var normalizedName = entry.name,
         address = entry.address;
 
-    var fetch = Promise.cast(loader.moduleApi.fetch(entry))
+    var fetch = Promise.cast(loader.fetch(entry))
     .then(function(source) {
       entry.source = source;
-      return loader.moduleApi.translate(entry);
+      return loader.translate(entry);
     })
     .then(function(source) {
       try {
@@ -5815,7 +5814,7 @@ var parse;
 
     if (!entry._registered) {
       entry._fetching = true;
-      Promise.cast(loader.moduleApi.locate(entry, 'js'))
+      Promise.cast(loader.locate(entry, 'js'))
         .then(function(address) {
           entry.address = address;
 
@@ -5952,6 +5951,160 @@ var parse;
     .catch(entry.reject);
   }
 
+
+  function Loader(options) {
+    return createLoaderPair(options).moduleApi;
+  }
+
+  // Specified as a prototype, but these values are just mixed in
+  // to the Loader instance function.
+  Loader.prototype = {
+    // START module lifecycle events
+    normalize: function(name, refererName, refererAddress) {
+      var pluginIndex = name.indexOf('!');
+
+      if (pluginIndex === -1) {
+
+        var nameParts = name.split('/');
+
+        if (nameParts[0].charAt(0) === '.') {
+          if (refererName) {
+            var refParts = refererName.split('/');
+            //Convert refererName to array, and lop off the last part,
+            //so that . matches that 'directory' and not name of the
+            // refererName's module. For instance, refererName of
+            // 'one/two/three', maps to 'one/two/three.js', but we want the
+            // directory, 'one/two' for this normalization.
+            nameParts = refParts.slice(0, refParts.length - 1)
+                        .concat(nameParts);
+          } else if (name.indexOf('./') === 0) {
+            // Just trim it off, already at the top of the module ID space.
+            nameParts[0] = nameParts[0].substring(2);
+          } else {
+            throw new Error('Invalid ID, oustide of the module ID space: ' +
+                            name);
+          }
+        }
+
+        trimDots(nameParts);
+        name = nameParts.join('/');
+
+        // TODO: apply alias config.
+
+        // If the name points to a package's name, use the package main instead.
+        var pkgMain = getOwn(this.options._mainIds,
+                             name);
+
+        return pkgMain || name;
+      } else {
+        // Plugin time
+        var pluginId = name.substring(0, pluginIndex),
+            resourceId = name.substring(pluginIndex + 1);
+
+        var normalizedPluginId = this.normalize(pluginId,
+                                                refererName,
+                                                refererAddress);
+        if (typeof normalizedPluginId !== 'string') {
+          throw new Error('Normalization of plugin ID needs to complete ' +
+                          'synchronously for: ' + name);
+        }
+
+        var onPluginMod = function(mod) {
+          return (mod.normalize ? mod : this)
+                 .normalize(resourceId, refererName, refererAddress);
+        };
+
+        if (this.has(normalizedPluginId)) {
+          return onPluginMod(this.getModule(normalizedPluginId));
+        } else {
+          this.use(normalizedPluginId).then(onPluginMod);
+        }
+      }
+    },
+
+    locate: function(entry, extension) {
+      // entry: name, metadata
+      var segment, pluginId, resourceId, name, separatorIndex,
+          location, slashIndex,
+          normalizedLocations = this.options._normalizedLocations;
+
+      segment = name = entry.name;
+      separatorIndex = name.indexOf(pluginSeparator);
+
+      if (separatorIndex == -1) {
+        var firstPass = true;
+        while(segment) {
+          // If not the first pass match, then look for id + '/' matches,
+          // for location config that only matches children of a higher
+          // level ID. So locations config for 'a/b/' should only match 'a/b/c'
+          // and not 'a/b'.
+          if (!firstPass) {
+            var segmentPlusSlash = segment + '/';
+            if (hasProp(normalizedLocations, segmentPlusSlash)) {
+              location = normalizedLocations[segmentPlusSlash];
+              location = name.replace(segmentPlusSlash, location + '/');
+              break;
+            }
+          }
+          if (hasProp(normalizedLocations, segment)) {
+            location = name.replace(segment, normalizedLocations[segment]);
+            break;
+          }
+          slashIndex = segment.lastIndexOf('/');
+          if (slashIndex === -1) {
+            break;
+          }
+          firstPass = false;
+          segment = segment.substring(0, slashIndex);
+        }
+
+        if (!location) {
+          location = name;
+        }
+
+        location = (location.charAt(0) === '/' ||
+                    location.match(/^[\w\+\.\-]+:/) ?
+                    '' : this.options.baseUrl) + location;
+
+        if (extension && location.indexOf('data:') !== 0) {
+          location += '.' + extension;
+        }
+
+        return location;
+      } else {
+        // Use plugin to locate
+        pluginId = name.substring(0, separatorIndex);
+        resourceId = name.substring(separatorIndex + 1);
+
+        var onPluginMod = function(mod) {
+          return (mod.locate ? mod : this)
+                 .locate({
+                   name: resourceId
+                 }, extension);
+        };
+
+        if (this.has(pluginId)) {
+          return onPluginMod(this.getModule(pluginId));
+        } else {
+          this.use(pluginId).then(onPluginMod);
+        }
+      }
+    },
+
+    fetch: function(entry) {
+      // entry: name, metadata, address
+
+      return fetchText(entry.address);
+    },
+
+    translate: function(entry) {
+      //entry: name, metadata, address, source
+
+      return entry.source;
+    }
+    // END module lifecycle events
+  };
+
   function PrivateLoader(options, parent) {
     this._parent;
     this._refererName = options.refererName;
@@ -5984,7 +6137,9 @@ var parse;
     }
   }
 
-  PrivateLoader.prototype = {
+  PrivateLoader.prototype = Object.create(Loader.prototype);
+
+  mix(PrivateLoader.prototype, {
     _privateConfigNames: {
       _normalizedLocations: true,
       _mainIds: true
@@ -6141,7 +6296,7 @@ var parse;
       return Promise.cast()
         .then(function() {
           // normalize
-          return Promise.cast(this.moduleApi.normalize(name));
+          return Promise.cast(this.normalize(name));
         }.bind(this))
         .then(function(normalizedName) {
           // locate
@@ -6157,7 +6312,7 @@ var parse;
 
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
-                       this.moduleApi.normalize(name, this._refererName) :
+                       this.normalize(name, this._refererName) :
                        name;
 
       if (typeof normalized !== 'string') {
@@ -6349,7 +6504,7 @@ waitInterval config
           uniqueNames = [];
 
       var p = prim.all(args.map(function(name) {
-        return this.moduleApi.normalize(name, this._refererName);
+        return this.normalize(name, this._refererName);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -6426,7 +6581,7 @@ waitInterval config
       }
     }
     // END MIRROR OF PUBLIC API
-  };
+  });
 
   function createLoaderPair(options, parentPrivateLoader) {
     options = options || {};
@@ -6461,12 +6616,17 @@ waitInterval config
 
     module.Loader = Loader;
 
-    // Mix in loader hooks from either the parent or from Loader.prototype
-    var baseHookProvider = (parentPrivateLoader &&
-                            parentPrivateLoader.moduleApi) || Loader.prototype;
-    hookNames.forEach(function(hookName) {
-        module[hookName] = baseHookProvider[hookName];
-    });
+    module.normalize = function(name) {
+      return privateLoader.normalize(name, privateLoader._refererName);
+    };
+
+    module.locate = function(name, extension) {
+      // TODO: `metadata` as second arg does not make sense here. Does
+      // it make sense anywhere?
+      return privateLoader.locate({
+        name: privateLoader.normalize(name, privateLoader._refererName)
+      }, extension);
+    };
 
     if (!parentPrivateLoader) {
       module.config = function(options) {
@@ -6487,168 +6647,6 @@ waitInterval config
       privateLoader: privateLoader
     };
   }
-
-  function Loader(options) {
-    return createLoaderPair(options).moduleApi;
-  }
-
-  // Specified as a prototype, but these values are just mixed in
-  // to the Loader instance function.
-  Loader.prototype = {
-    // START module lifecycle events
-    normalize: function(name, refererName, refererAddress) {
-      var pluginIndex = name.indexOf('!');
-
-      if (pluginIndex === -1) {
-
-        var nameParts = name.split('/');
-
-        if (nameParts[0].charAt(0) === '.') {
-          if (refererName) {
-            var refParts = refererName.split('/');
-            //Convert refererName to array, and lop off the last part,
-            //so that . matches that 'directory' and not name of the
-            // refererName's module. For instance, refererName of
-            // 'one/two/three', maps to 'one/two/three.js', but we want the
-            // directory, 'one/two' for this normalization.
-            nameParts = refParts.slice(0, refParts.length - 1)
-                        .concat(nameParts);
-          } else if (name.indexOf('./') === 0) {
-            // Just trim it off, already at the top of the module ID space.
-            nameParts[0] = nameParts[0].substring(2);
-          } else {
-            throw new Error('Invalid ID, oustide of the module ID space: ' +
-                            name);
-          }
-        }
-
-        trimDots(nameParts);
-        name = nameParts.join('/');
-
-        // TODO: apply alias config.
-
-        // If the name points to a package's name, use the package main instead.
-        var pkgMain = getOwn(this._privateLoader.options._mainIds, name);
-
-        return pkgMain || name;
-      } else {
-        // Plugin time
-        var pluginId = name.substring(0, pluginIndex),
-            resourceId = name.substring(pluginIndex + 1);
-
-        var normalizedPluginId = this.normalize(pluginId,
-                                                refererName,
-                                                refererAddress);
-        if (typeof normalizedPluginId !== 'string') {
-          throw new Error('Normalization of plugin ID needs to complete ' +
-                          'synchronously for: ' + name);
-        }
-
-        var onPluginMod = function(mod) {
-          return (mod.normalize ? mod : this)
-                 .normalize(resourceId, refererName, refererAddress);
-        };
-
-        if (this.moduleApi.has(normalizedPluginId)) {
-          return onPluginMod(this.moduleApi.getModule(normalizedPluginId));
-        } else {
-          this.use(normalizedPluginId).then(onPluginMod);
-        }
-      }
-    },
-
-    locate: function(entry, extension) {
-      // Make it easy to call this from user code by allowing
-      // a string value.
-      if (typeof entry === 'string') {
-        entry = {
-          name: entry
-        };
-      }
-
-      // entry: name, metadata
-      var segment, pluginId, resourceId, name, separatorIndex,
-          location, slashIndex,
-          normalizedLocations = this._privateLoader
-                                .options._normalizedLocations;
-
-      segment = name = entry.name;
-      separatorIndex = name.indexOf(pluginSeparator);
-
-      if (separatorIndex == -1) {
-        var firstPass = true;
-        while(segment) {
-          // If not the first pass match, then look for id + '/' matches,
-          // for location config that only matches children of a higher
-          // level ID. So locations config for 'a/b/' should only match 'a/b/c'
-          // and not 'a/b'.
-          if (!firstPass) {
-            var segmentPlusSlash = segment + '/';
-            if (hasProp(normalizedLocations, segmentPlusSlash)) {
-              location = normalizedLocations[segmentPlusSlash];
-              location = name.replace(segmentPlusSlash, location + '/');
-              break;
-            }
-          }
-          if (hasProp(normalizedLocations, segment)) {
-            location = name.replace(segment, normalizedLocations[segment]);
-            break;
-          }
-          slashIndex = segment.lastIndexOf('/');
-          if (slashIndex === -1) {
-            break;
-          }
-          firstPass = false;
-          segment = segment.substring(0, slashIndex);
-        }
-
-        if (!location) {
-          location = name;
-        }
-
-        location = (location.charAt(0) === '/' ||
-                    location.match(/^[\w\+\.\-]+:/) ?
-                    '' : this._privateLoader.options.baseUrl) + location;
-
-        if (extension && location.indexOf('data:') !== 0) {
-          location += '.' + extension;
-        }
-
-        return location;
-      } else {
-        // Use plugin to locate
-        pluginId = name.substring(0, separatorIndex);
-        resourceId = name.substring(separatorIndex + 1);
-
-        var onPluginMod = function(mod) {
-          return (mod.locate ? mod : this)
-                 .locate({
-                   name: resourceId
-                 }, extension);
-        };
-
-        if (this.moduleApi.has(pluginId)) {
-          return onPluginMod(this.moduleApi.getModule(pluginId));
-        } else {
-          this.use(pluginId).then(onPluginMod);
-        }
-      }
-    },
-
-    fetch: function(entry) {
-      // entry: name, metadata, address
-
-      return fetchText(entry.address);
-    },
-
-    translate: function(entry) {
-      //entry: name, metadata, address, source
-
-      return entry.source;
-    },
-
-    // END module lifecycle events
-  };
 
   module = new Loader();
 
