@@ -908,25 +908,25 @@ waitInterval config
           //module. For instance, refererName of 'one/two/three', maps to
           //'one/two/three.js', but we want the directory, 'one/two' for
           //this normalization.
-          name = refParts.slice(0, refParts.length - 1).concat(name);
+          nameParts = refParts.slice(0, refParts.length - 1).concat(nameParts);
         } else if (name.indexOf('./') === 0) {
           // Just trim it off, already at the top of the module ID space.
-          name = name.substring(2);
+          nameParts[0] = nameParts[0].substring(2);
         } else {
           throw new Error('Invalid ID, oustide of the module ID space: ' +
                           name);
         }
       }
 
-      trimDots(name);
-      name = name.join('/');
+      trimDots(nameParts);
+      name = nameParts.join('/');
 
       // TODO: apply alias config.
 
       // If the name points to a package's name, use the package main instead.
-      var pkgMain = getOwn(this.options._mainIds, name);
+      var pkgMain = getOwn(this._privateLoader.options._mainIds, name);
 
-      return pkgMain ? pkgMain : name;
+      return pkgMain || name;
     },
 
     locate: function(entry, extension) {
