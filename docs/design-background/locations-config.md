@@ -71,7 +71,10 @@ The general format for a "locations" config entry. The < > parts indicate logica
 * For 1, callers to loader's `locate` method pass a 'js' as the file extension, and `locate` applies the locations mapping to urlpath-segment, then adds the extension if it exists. For 3 and 4, loader plugins are expected to pull off the file extension from the ID, then call the loader's `locate` method with the extracted the extension.
 * For 2, this is a rarely needed config option, and supporting it means overriding the `locate` hook to just return a string without considering the fileExtension argument to `locate`.
 
-Passing a a value that is falsy (null, undefined, empty string, false), will be the way to clear a locations entry from a loader, in the case of a reset. Using undefined or empty string (if json) should be the preferred ways to indicate a reset of a location value.
+Passing a a value that is null, or false, will be the way to clear a locations entry from a loader, in the case of a reset.
+
+For package config, if the package can be found at the baseUrl, then an empty string can
+be used for the value.
 
 
 ### locate module loader method accepts suffix
@@ -107,4 +110,15 @@ map config is not used to avoid precedence issues and conflicting with other map
 
 Also a bit wordy to specify map config for pkg and pkg/.
 
+## locate in module code
+
+It is useful to call `module.locate('some/thing')` inside a module, to set up a path for instance, like for HTML src or href values. How best to do that?
+
+Right now, allowing default locate to take a string as first arg that gets auto-upgraded to object inside method. Right now it also can return just a string instead of a promise.
+
+But that assumes a loader plugin is not in play. How best to do that? Could limit it to be "will throw if plugin not already loaded", but then need to construct default locate method to not use a promise to call the plugin API if it is loaded.
+
+Also means overloading the behavior of locate. Does a "locateSync" make sense in that case?
+
+Same thing for `normalize`.
 

@@ -5809,8 +5809,8 @@ var parse;
       return enable(entry._parentEntry);
     }
 
-    var loader = entry._loader._parent;
-debugger;
+    var loader = entry._loader._parent || entry._loader;
+
     entry._callEnableOnDefine = true;
 
     if (!entry._registered) {
@@ -6015,6 +6015,12 @@ debugger;
             var mainId,
                 locValue = value[locKey];
 
+            // locValues cannot end in a /, this is just sanitation.
+            if (locValue && typeof locValue === 'string' &&
+                locValue.lastIndexOf('/') === locValue.length - 1) {
+              locValue = locValue.substring(0, locValue.length - 1);
+            }
+
             // Update public-matching config inside loader, then break it
             // apart for more efficient internal use.
             opts.locations[locKey] = locValue;
@@ -6027,7 +6033,7 @@ debugger;
                        keyParts[1].substring(0, keyParts[1].length - 1);
             }
 
-            if (!locValue) {
+            if (locValue === null || locValue === false) {
               delete normalizedLocations[locKey];
               delete mainIds[locKey];
             } else {
@@ -6052,6 +6058,12 @@ debugger;
               }
             }
           });
+        } else if (key === 'baseUrl') {
+          // Make sure it ends in a slash for easy concatenation later.
+          if (value.lastIndexOf('/') !== value.length - 1) {
+            value += '/';
+          }
+          opts[key] = value;
         } else {
           deepPropMix(opts, key, options[key]);
         }
@@ -6485,43 +6497,80 @@ waitInterval config
   Loader.prototype = {
     // START module lifecycle events
     normalize: function(name, refererName, refererAddress) {
-      var nameParts = name.split('/');
+      var pluginIndex = name.indexOf('!');
 
-      if (nameParts[0].charAt(0) === '.') {
+      if (pluginIndex === -1) {
 
-        if (refererName) {
-          var refParts = refererName.split('/');
-          //Convert refererName to array, and lop off the last part,
-          //so that . matches that 'directory' and not name of the refererName's
-          //module. For instance, refererName of 'one/two/three', maps to
-          //'one/two/three.js', but we want the directory, 'one/two' for
-          //this normalization.
-          nameParts = refParts.slice(0, refParts.length - 1).concat(nameParts);
-        } else if (name.indexOf('./') === 0) {
-          // Just trim it off, already at the top of the module ID space.
-          nameParts[0] = nameParts[0].substring(2);
+        var nameParts = name.split('/');
+
+        if (nameParts[0].charAt(0) === '.') {
+          if (refererName) {
+            var refParts = refererName.split('/');
+            //Convert refererName to array, and lop off the last part,
+            //so that . matches that 'directory' and not name of the
+            // refererName's module. For instance, refererName of
+            // 'one/two/three', maps to 'one/two/three.js', but we want the
+            // directory, 'one/two' for this normalization.
+            nameParts = refParts.slice(0, refParts.length - 1)
+                        .concat(nameParts);
+          } else if (name.indexOf('./') === 0) {
+            // Just trim it off, already at the top of the module ID space.
+            nameParts[0] = nameParts[0].substring(2);
+          } else {
+            throw new Error('Invalid ID, oustide of the module ID space: ' +
+                            name);
+          }
+        }
+
+        trimDots(nameParts);
+        name = nameParts.join('/');
+
+        // TODO: apply alias config.
+
+        // If the name points to a package's name, use the package main instead.
+        var pkgMain = getOwn(this._privateLoader.options._mainIds, name);
+
+        return pkgMain || name;
+      } else {
+        // Plugin time
+        var pluginId = name.substring(0, pluginIndex),
+            resourceId = name.substring(pluginIndex + 1);
+
+        var normalizedPluginId = this.normalize(pluginId,
+                                                refererName,
+                                                refererAddress);
+        if (typeof normalizedPluginId !== 'string') {
+          throw new Error('Normalization of plugin ID needs to complete ' +
+                          'synchronously for: ' + name);
+        }
+
+        var onPluginMod = function(mod) {
+          return (mod.normalize ? mod : this)
+                 .normalize(resourceId, refererName, refererAddress);
+        };
+
+        if (this.moduleApi.has(normalizedPluginId)) {
+          return onPluginMod(this.moduleApi.getModule(normalizedPluginId));
         } else {
-          throw new Error('Invalid ID, oustide of the module ID space: ' +
-                          name);
+          this.use(normalizedPluginId).then(onPluginMod);
         }
       }
-
-      trimDots(nameParts);
-      name = nameParts.join('/');
-
-      // TODO: apply alias config.
-
-      // If the name points to a package's name, use the package main instead.
-      var pkgMain = getOwn(this._privateLoader.options._mainIds, name);
-
-      return pkgMain || name;
     },
 
     locate: function(entry, extension) {
+      // Make it easy to call this from user code by allowing
+      // a string value.
+      if (typeof entry === 'string') {
+        entry = {
+          name: entry
+        };
+      }
+
       // entry: name, metadata
       var segment, pluginId, resourceId, name, separatorIndex,
           location, slashIndex,
-          normalizedLocations = this.options._normalizedLocations;
+          normalizedLocations = this._privateLoader
+                                .options._normalizedLocations;
 
       segment = name = entry.name;
       separatorIndex = name.indexOf(pluginSeparator);
@@ -6537,12 +6586,12 @@ waitInterval config
             var segmentPlusSlash = segment + '/';
             if (hasProp(normalizedLocations, segmentPlusSlash)) {
               location = normalizedLocations[segmentPlusSlash];
-              location = name.replace(segmentPlusSlash, location);
+              location = name.replace(segmentPlusSlash, location + '/');
               break;
             }
           }
           if (hasProp(normalizedLocations, segment)) {
-            location = normalizedLocations[segment];
+            location = name.replace(segment, normalizedLocations[segment]);
             break;
           }
           slashIndex = segment.lastIndexOf('/');
@@ -6554,19 +6603,35 @@ waitInterval config
         }
 
         if (!location) {
-          location = this.options.baseUrl + name;
+          location = name;
         }
 
-        if (extension) {
+        location = (location.charAt(0) === '/' ||
+                    location.match(/^[\w\+\.\-]+:/) ?
+                    '' : this._privateLoader.options.baseUrl) + location;
+
+        if (extension && location.indexOf('data:') !== 0) {
           location += '.' + extension;
         }
 
         return location;
       } else {
-        // TODO: load plugin and resolve
+        // Use plugin to locate
         pluginId = name.substring(0, separatorIndex);
         resourceId = name.substring(separatorIndex + 1);
 
+        var onPluginMod = function(mod) {
+          return (mod.locate ? mod : this)
+                 .locate({
+                   name: resourceId
+                 }, extension);
+        };
+
+        if (this.moduleApi.has(pluginId)) {
+          return onPluginMod(this.moduleApi.getModule(pluginId));
+        } else {
+          this.use(pluginId).then(onPluginMod);
+        }
       }
     },
 
