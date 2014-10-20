@@ -5771,7 +5771,6 @@ var parse;
       try {
         var parseResult = parse.fromBody(source, 'module');
         entry.parseResult = parseResult;
-        entry.deps = parseResult.deps;
 
         // If it looks like a module body, then wrap
         // in a module body function wrapper. Otherwise,
@@ -5869,9 +5868,11 @@ var parse;
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return loader.moduleApi.normalize(dep, loader._refererName);
+      return loader.normalize(dep, entry.name);
     }))
     .then(function(normalizedDeps) {
+      entry.deps = normalizedDeps;
+
       entry._depResolvers = {};
 
       // Got define function and dependencies now, so
@@ -5962,16 +5963,17 @@ var parse;
   Loader.prototype = {
     // START module lifecycle events
     _normalize: function(wantSync, name, refererName) {
-      var result,
+      var result, nameSegment, i, j, aliasValue, foundAlias, foundI,
+          foundStarAlias, starI,
           pluginIndex = name.indexOf('!');
 
       if (pluginIndex === -1) {
 
-        var nameParts = name.split('/');
+        var nameParts = name.split('/'),
+            refParts = refererName && refererName.split('/');
 
         if (nameParts[0].charAt(0) === '.') {
           if (refererName) {
-            var refParts = refererName.split('/');
             //Convert refererName to array, and lop off the last part,
             //so that . matches that 'directory' and not name of the
             // refererName's module. For instance, refererName of
@@ -5989,9 +5991,58 @@ var parse;
         }
 
         trimDots(nameParts);
-        name = nameParts.join('/');
 
-        // TODO: apply alias config.
+        //Apply alias config if appropriate.
+        var alias = this.options.alias,
+            starAlias = alias && alias['*'];
+
+        if (alias && (refParts || starAlias)) {
+          outerLoop: for (i = nameParts.length; i > 0; i -= 1) {
+            nameSegment = nameParts.slice(0, i).join('/');
+
+            // alias config is keyed off the refereName, so use its parts to
+            // find a refName-specific config.
+            if (refParts) {
+              //Find the longest refName segment match in the config.
+              //So, do joins on the biggest to smallest lengths of refParts.
+              for (j = refParts.length; j > 0; j -= 1) {
+                aliasValue = getOwn(alias, refParts.slice(0, j).join('/'));
+
+                //refName segment has config, find if it has one for
+                //this name.
+                if (aliasValue) {
+                  aliasValue = getOwn(aliasValue, nameSegment);
+                  if (aliasValue) {
+                    //Match, update name to the new value.
+                    foundAlias = aliasValue;
+                    foundI = i;
+                    break outerLoop;
+                  }
+                }
+              }
+            }
+
+            //Check for a star map match, but just hold on to it,
+            //if there is a shorter segment match later in a matching
+            //config, then favor over this star map.
+            if (!foundStarAlias && starAlias &&
+                getOwn(starAlias, nameSegment)) {
+              foundStarAlias = getOwn(starAlias, nameSegment);
+              starI = i;
+            }
+          }
+
+          if (!foundAlias && foundStarAlias) {
+            foundAlias = foundStarAlias;
+            foundI = starI;
+          }
+
+          if (foundAlias) {
+            nameParts.splice(0, foundI, foundAlias);
+          }
+        }
+
+        name = nameParts.join('/');
 
         // If the name points to a package's name, use the package main instead.
         var pkgMain = getOwn(this.options._mainIds,
@@ -6168,10 +6219,11 @@ var parse;
         _normalizedLocations: {},
         _mainIds: {},
 
-        // properties that map directly to public config
+        // Properties that map directly to public config. alias is not set up
+        // by default to make it easy to detect if it should be applied in
+        // normalize.
         baseUrl: '',
         locations: {},
-        alias: {},
         moduleConfig: {}
       };
     }
@@ -6414,7 +6466,7 @@ var parse;
         traced[name] = true;
       }
 
-      if (!entry._moduleResolved && entry.deps.length) {
+      if (!entry._moduleResolved && entry.deps && entry.deps.length) {
         entry.deps.forEach(function (depName) {
           var depEntry = this._getEntry(depName);
 
@@ -6468,7 +6520,8 @@ waitInterval config
 
     // START MIRROR OF PUBLIC API
     getModule: function(name) {
-      return this._getModuleNormalized(this.moduleNormalize(name));
+      return this._getModuleNormalized(this.moduleNormalize(name,
+                                                            this._refererName));
     },
 
     setExport: function(value) {
