@@ -6351,18 +6351,6 @@ var parse;
         }.bind(this));
     },
 
-    _normIfReferer: function(name) {
-      var normalized = this._refererName ?
-                       this.moduleNormalize(name, this._refererName) :
-                       name;
-
-      if (typeof normalized !== 'string') {
-        throw new Error('name cannot be normalized synchronously: ' + name);
-      }
-
-      return normalized;
-    },
-
     _hasNormalized: function(normalizedName) {
       return hasProp(this._modules, normalizedName);
     },
@@ -6461,7 +6449,7 @@ waitInterval config
 
     // START MIRROR OF PUBLIC API
     getModule: function(name) {
-      var normalizedName = this._normIfReferer(name);
+      var normalizedName = this.moduleNormalize(name);
       var entry = this._getEntry(normalizedName);
 
       if (entry) {
@@ -6600,7 +6588,7 @@ waitInterval config
     },
 
     has: function(name) {
-      var normalizedName = this._normIfReferer(name);
+      var normalizedName = this.moduleNormalize(name);
 
       if (this._hasNormalized(normalizedName)) {
         return true;
@@ -6614,7 +6602,7 @@ waitInterval config
     },
 
     delete: function(name) {
-      var normalizedName = this._normIfReferer(name);
+      var normalizedName = this.moduleNormalize(name);
       if (this._hasNormalized(normalizedName)) {
         delete this._modules[normalizedName];
       } else {
