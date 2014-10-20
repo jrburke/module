@@ -424,8 +424,8 @@ var module;
         }
 
         if (wantSync) {
-          if (this.has(normalizedPluginId)) {
-            var mod = this.getModule(normalizedPluginId);
+          if (this._hasNormalized(normalizedPluginId)) {
+            var mod = this._getModuleNormalized(normalizedPluginId);
             return (mod.moduleNormalize ? mod : this)
                     .moduleNormalize(resourceId, refererName);
           } else {
@@ -504,8 +504,8 @@ var module;
         resourceId = name.substring(separatorIndex + 1);
 
         if (wantSync) {
-          if (this.has(pluginId)) {
-            var mod = this.getModule(pluginId);
+          if (this._hasNormalized(pluginId)) {
+            var mod = this._getModuleNormalized(pluginId);
             return (mod.moduleLocate ? mod : this).moduleLocate({
                      name: resourceId
                    }, extension);
@@ -763,7 +763,7 @@ var module;
         }.bind(this));
     },
 
-    _hasNormalized: function(normalizedName) {
+    _hasOwnNormalized: function(normalizedName) {
       return hasProp(this._modules, normalizedName);
     },
 
@@ -859,9 +859,7 @@ waitInterval config
       eval(sourceText);
     },
 
-    // START MIRROR OF PUBLIC API
-    getModule: function(name) {
-      var normalizedName = this.moduleNormalize(name);
+    _getModuleNormalized: function(normalizedName) {
       var entry = this._getEntry(normalizedName);
 
       if (entry) {
@@ -878,6 +876,11 @@ waitInterval config
 
       throw new Error('module with name "' +
                       normalizedName + '" does not have an export');
+    },
+
+    // START MIRROR OF PUBLIC API
+    getModule: function(name) {
+      return this._getModuleNormalized(this.moduleNormalize(name));
     },
 
     setExport: function(value) {
@@ -999,23 +1002,25 @@ waitInterval config
       return p;
     },
 
-    has: function(name) {
-      var normalizedName = this.moduleNormalize(name);
-
-      if (this._hasNormalized(normalizedName)) {
+    _hasNormalized: function(normalizedName) {
+      if (this._hasOwnNormalized(normalizedName)) {
         return true;
       }
 
       if (this._parent) {
-        return this._parent.has(normalizedName);
+        return this._parent._hasNormalized(normalizedName);
       }
 
       return false;
     },
 
+    has: function(name) {
+      return this._hasNormalized(this.moduleNormalize(name));
+    },
+
     delete: function(name) {
       var normalizedName = this.moduleNormalize(name);
-      if (this._hasNormalized(normalizedName)) {
+      if (this._hasOwnNormalized(normalizedName)) {
         delete this._modules[normalizedName];
       } else {
         throw new Error('loader does not have module name: ' + normalizedName);
