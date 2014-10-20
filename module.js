@@ -5762,7 +5762,7 @@ var parse;
     var normalizedName = entry.name,
         address = entry.address;
 
-    var fetch = Promise.cast(loader.fetch(entry))
+    var fetch = loader.fetch(entry)
     .then(function(source) {
       entry.source = source;
       return loader.translate(entry);
@@ -5815,7 +5815,7 @@ var parse;
 
     if (!entry._registered) {
       entry._fetching = true;
-      Promise.cast(loader.locate(entry, 'js'))
+      loader.locate(entry, 'js')
         .then(function(address) {
           entry.address = address;
 
@@ -5907,7 +5907,7 @@ var parse;
           return entry.reject(e);
         }
 
-        Promise.cast().then(function () {
+        Promise.resolve().then(function () {
           if (hasProp(localPrivateLoader, '_usesExportDefine')) {
             // Need to wait for local define to resolve,
             // so set a listener for it now.
@@ -5961,8 +5961,9 @@ var parse;
   // to the Loader instance function.
   Loader.prototype = {
     // START module lifecycle events
-    normalize: function(name, refererName, refererAddress) {
-      var pluginIndex = name.indexOf('!');
+    _normalize: function(wantSync, name, refererName) {
+      var result,
+          pluginIndex = name.indexOf('!');
 
       if (pluginIndex === -1) {
 
@@ -5996,34 +5997,47 @@ var parse;
         var pkgMain = getOwn(this.options._mainIds,
                              name);
 
-        return pkgMain || name;
+        result = pkgMain || name;
+        return wantSync ? result : Promise.resolve(result);
       } else {
         // Plugin time
         var pluginId = name.substring(0, pluginIndex),
-            resourceId = name.substring(pluginIndex + 1);
+            resourceId = name.substring(pluginIndex + 1),
+            normalizedPluginId = this.normalize(pluginId,
+                                                refererName);
 
-        var normalizedPluginId = this.normalize(pluginId,
-                                                refererName,
-                                                refererAddress);
         if (typeof normalizedPluginId !== 'string') {
           throw new Error('Normalization of plugin ID needs to complete ' +
                           'synchronously for: ' + name);
         }
 
-        var onPluginMod = function(mod) {
-          return (mod.normalize ? mod : this)
-                 .normalize(resourceId, refererName, refererAddress);
-        };
-
-        if (this.has(normalizedPluginId)) {
-          return onPluginMod(this.getModule(normalizedPluginId));
+        if (wantSync) {
+          if (this.has(normalizedPluginId)) {
+            var mod = this.getModule(normalizedPluginId);
+            return (mod.moduleNormalize ? mod : this)
+                    .moduleNormalize(resourceId, refererName);
+          } else {
+            throw new Error(normalizedPluginId + ' needs to be loaded before ' +
+                           'it can be used in a module.normalize call');
+          }
         } else {
-          this.use(normalizedPluginId).then(onPluginMod);
+          return this.use(normalizedPluginId).then(function(mod) {
+            return (mod.normalize ? mod : this)
+                    .normalize(resourceId, refererName);
+          });
         }
       }
     },
 
-    locate: function(entry, extension) {
+    normalize: function(name, refererName) {
+      return this._normalize(false, name, refererName);
+    },
+
+    moduleNormalize: function(name, refererName) {
+      return this._normalize(true, name, refererName);
+    },
+
+    _locate: function(wantSync, entry, extension) {
       // entry: name, metadata
       var segment, pluginId, resourceId, name, separatorIndex,
           location, slashIndex,
@@ -6071,25 +6085,39 @@ var parse;
           location += '.' + extension;
         }
 
-        return location;
+        return wantSync ? location : Promise.resolve(location);
       } else {
         // Use plugin to locate
         pluginId = name.substring(0, separatorIndex);
         resourceId = name.substring(separatorIndex + 1);
 
-        var onPluginMod = function(mod) {
-          return (mod.locate ? mod : this)
-                 .locate({
-                   name: resourceId
-                 }, extension);
-        };
-
-        if (this.has(pluginId)) {
-          return onPluginMod(this.getModule(pluginId));
+        if (wantSync) {
+          if (this.has(pluginId)) {
+            var mod = this.getModule(pluginId);
+            return (mod.moduleLocate ? mod : this).moduleLocate({
+                     name: resourceId
+                   }, extension);
+          } else {
+            throw new Error(pluginId + ' needs to be loaded before ' +
+                           'it can be used in a module.locate call');
+          }
         } else {
-          this.use(pluginId).then(onPluginMod);
+          return this.use(pluginId).then(function(mod) {
+            return (mod.locate ? mod : this).locate({
+                     name: resourceId
+                   }, extension);
+          });
         }
+
       }
+    },
+
+    locate: function(name, refererName) {
+      return this._locate(false, name, refererName);
+    },
+
+    moduleLocate: function(name, refererName) {
+      return this._locate(true, name, refererName);
     },
 
     fetch: function(entry) {
@@ -6310,11 +6338,7 @@ var parse;
     },
 
     _pipeline: function(name) {
-      return Promise.cast()
-        .then(function() {
-          // normalize
-          return Promise.cast(this.normalize(name));
-        }.bind(this))
+      return this.normalize(name)
         .then(function(normalizedName) {
           // locate
           if (hasProp(this._modules, normalizedName)) {
@@ -6329,7 +6353,7 @@ var parse;
 
     _normIfReferer: function(name) {
       var normalized = this._refererName ?
-                       this.normalize(name, this._refererName) :
+                       this.moduleNormalize(name, this._refererName) :
                        name;
 
       if (typeof normalized !== 'string') {
@@ -6634,14 +6658,14 @@ waitInterval config
     module.Loader = Loader;
 
     module.normalize = function(name) {
-      return privateLoader.normalize(name, privateLoader._refererName);
+      return privateLoader.moduleNormalize(name, privateLoader._refererName);
     };
 
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
-      return privateLoader.locate({
-        name: privateLoader.normalize(name, privateLoader._refererName)
+      return privateLoader.moduleLocate({
+        name: privateLoader.moduleNormalize(name, privateLoader._refererName)
       }, extension);
     };
 
