@@ -5611,6 +5611,7 @@ var parse;
       aslice = Array.prototype.slice,
       _allLoaders = [],
       isDebug = true,
+      instanceCounter = 0,
       pluginSeparator = '!';
 
   var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
@@ -6106,13 +6107,24 @@ var parse;
   };
 
   function PrivateLoader(options, parent) {
-    this._parent;
+    this._parent = parent;
     this._refererName = options.refererName;
     this._modules = {};
     this._entries = {};
     this._registeredCounter = 0;
     this._fetches = {};
     this._dynaEntries = [];
+
+    this._instanceId = 'id' + (instanceCounter++);
+
+    if (isDebug) {
+      console.log('PrivateLoader: ' +
+                  this._refererName + ':' + this._instanceId +
+                  ', parent: ' + (parent && parent._refererName) +
+                   ':' +
+                    ((parent && parent._refererName &&
+                     this._refererName_instanceId) || ''));
+    }
 
     // Set up top
     this.top = this._parent ? this._parent.top : this;
@@ -6226,6 +6238,11 @@ var parse;
     },
 
     createEntry: function(normalizedName, parentEntry) {
+      if (isDebug) {
+        console.log('Entry: ' + normalizedName +
+                    ' in ' + this._refererName + ':' + this._instanceId);
+      }
+
       var entry = {
         name: normalizedName,
         metadata: {},
