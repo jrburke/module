@@ -5883,7 +5883,7 @@ var parse;
       Promise.all(normalizedDeps.map(function(dep) {
         // Create an intermediary for the dependency, to allow
         // for cycle resolution if the dependency tree gets stuck.
-        var depResolver = new DepResolver(dep, loader._pipeline(dep));
+        var depResolver = new DepResolver(dep, loader._whenResolvedModule(dep));
         entry._depResolvers[dep] = depResolver;
         return depResolver.p;
       })).then(function() {
@@ -5944,7 +5944,7 @@ var parse;
           // TODO: clean up the entry, remove it so can be garbage collected,
           // by calling then on the whenFulfilled thing. Is this safe to do
           // though? promise microtasks and the entry reference that is used
-          // across async calls in _pipeline might make it a bad idea.
+          // across async calls in pipeline might make it a bad idea.
         })
         .catch(entry.reject);
       })
@@ -6389,18 +6389,14 @@ var parse;
       }
     },
 
-    _pipeline: function(name) {
-      return this.normalize(name)
-        .then(function(normalizedName) {
-          // locate
-          if (hasProp(this._modules, normalizedName)) {
-            return this._modules[normalizedName];
-          } else {
-            var entry = this._getEntryOrCreateFromTop(normalizedName);
-            enable(entry);
-            return entry.whenFulfilled;
-          }
-        }.bind(this));
+    _whenResolvedModule: function(normalizedName) {
+      if (hasProp(this._modules, normalizedName)) {
+        return Promise.resolve(this._modules[normalizedName]);
+      } else {
+        var entry = this._getEntryOrCreateFromTop(normalizedName);
+        enable(entry);
+        return entry.whenFulfilled;
+      }
     },
 
     _hasOwnNormalized: function(normalizedName) {
@@ -6602,7 +6598,7 @@ waitInterval config
         normalizedArgs.forEach(function(normalizedName) {
           if (uniqueNames.indexOf(normalizedName) === -1) {
             uniqueNames.push(normalizedName);
-            pipelinePromises.push(this._pipeline(normalizedName));
+            pipelinePromises.push(this._whenResolvedModule(normalizedName));
           }
         }.bind(this));
 
