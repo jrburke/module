@@ -13,3 +13,8 @@ after initial creation, and to have that cascade to nested `module` instances.
     * For `locate`, likely will be common that the ID needs to be normalized first.
 
 
+todo:
+
+* moduleConfig
+* createHooks
+* update loader-config.md to mention current supported syntax.
