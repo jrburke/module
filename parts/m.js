@@ -636,7 +636,7 @@ var module;
         // normalize.
         baseUrl: '',
         locations: {},
-        moduleConfig: {}
+        moduleData: {}
       };
     }
   }
@@ -1074,6 +1074,14 @@ waitInterval config
       } else {
         throw new Error('loader does not have module name: ' + normalizedName);
       }
+    },
+
+    moduleData: function() {
+      var data = this.options.moduleData[this._refererName];
+      if (!data) {
+        data = this.options.moduleData[this._refererName] = Object.create(null);
+      }
+      return data;
     }
     // END MIRROR OF PUBLIC API
   });
@@ -1106,6 +1114,9 @@ waitInterval config
       },
       get export () {
         return privateLoader._export;
+      },
+      get data () {
+        return privateLoader.moduleData();
       }
     }, true);
 

@@ -54,7 +54,7 @@ For 3 and 4, it is tempting to say "loader plugin, just call `locate` then strip
 
 Are those surmountable via `locate` overrides? Not really, because the value is dependent on the caller to locate, locate does not have enough to disambiguate a call for 'some/thing.html' and a 'some/thing' that is for the .js file as a sibling to the .html file.
 
-What if those are moduleConfig options to the loader plugins? That means having deeper knowledge that a package may need a moduleConfig for a loader plugin that it may use, and what config format that should take, which breaks encapsulation -- the package is no longer an encapsulated entity that just specifies module ID dependencies.
+What if those are moduleData options to the loader plugins? That means having deeper knowledge that a package may need a moduleData for a loader plugin that it may use, and what config format that should take, which breaks encapsulation -- the package is no longer an encapsulated entity that just specifies module ID dependencies.
 
 ## Selected approach
 

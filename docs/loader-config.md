@@ -173,15 +173,17 @@ Example:
 
 In this example if 'some/oldmodule' asks for 'foo', it will get 'foo1.0', where if any other module who asks for 'foo' will get 'foo1.2'.
 
-### moduleConfig
+### moduleData
 
-A configuration object available to modules that match the absolute module ID listed in the moduleConfig object. Modules with a matching module ID can access the configuration object via `module.config`, which is an Object value. The Object value is mutable, and an Object value is always returned. If there is no explicit config set, calling `module.config` will return an empty object, and not undefined.
+A data object available to modules that match the absolute module ID listed in the data object. This is useful for passing configuration data to a specific module.
+
+The data is set inside the `moduleData` config object, and modules with a matching module ID can access the data object via `module.data`, which is an Object value. The Object value is mutable, and an Object value is always returned. If there is no explicit data set from a config() call, accessing `module.data` will return an empty object, and not undefined.
 
 Example:
 
 ```javascript
 {
-    moduleConfig: {
+    moduleData: {
         'some/module/id': {
             limit: 40
         }
@@ -189,7 +191,7 @@ Example:
 }
 ```
 
-For the module that resolves to the absolute module ID of 'some/module/id', `module.config.limit === 40`.
+For the module that resolves to the absolute module ID of 'some/module/id', `module.data.limit === 40`.
 
 ### createHooks
 

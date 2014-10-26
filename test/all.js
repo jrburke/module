@@ -7,3 +7,4 @@ doh.registerUrl('baseLocalModules', '../base/localModules/test.html');
 
 doh.registerUrl('configLocations', '../config/locations/test.html');
 doh.registerUrl('configAlias', '../config/alias/test.html');
+doh.registerUrl('configModuleData', '../config/moduleData/test.html');
