@@ -2,15 +2,15 @@
 
 By default, the loader will load items from `baseUrl + module ID + '.js'`, and all scripts that use the module system will be evaluated in strict mode.
 
-For some environments, like Node, the default loader in that environment will have already been set up with some default path resolution logic for that environment. For Node, it would know how to traverse nested node_modules.
+The following configuration options allow some declarative ways to modify that default behavior, as well as a `createHooks` capability to provide imperative overrides.
 
-There are some configuration options to control how the loader loads scripts, and how to add in loader lifecycle hooks.
+For some environments, like Node, the default loader in that environment can provide `createHooks` overrides to these base config values, and delegate to them when/if they seem appropriate.
 
 ## Config API
 
-Configuration is only possible on a "top" loader, one that does not have a parent loader. Each module gets its own `module` object, and that module object is effectively a loader tied to a parent module. However, there are loaders that do not have parents:
+Configuration is only possible on a "top" loader, one that does not have a parent loader. Each module gets its own `module` object, and that module object is effectively a loader tied to a parent loader. However, there are loaders that do not have parents:
 
-* In a web page, `module.top` is the topmost, default loader.
+* `module.top` is the topmost, default loader.
 * Calling `new module.Loader({})` creates a new loader with no parent.
 
 In the `new module.Loader({})` form, the object passed to the constructor is a configuration object.
@@ -32,74 +32,68 @@ First, some common terms:
 
 ### baseUrl
 
-This sets the baseUrl for the loader. By default, set the directorty where execution starts. For a web page, this is the web page's directory. For a command line script, it would be the directory in which the script is run.
+This sets the baseUrl for the loader. By default, set the directorty where execution starts. For a web page, this is the web page's directory. For a command line script, it would be the directory in which the top level script is run.
 
 ### locations
 
-Property names are module ID prefixes, and the values are path segments, using a '*' to indicate where the full module ID will be inserted. If the path segment is a relative path, it is relative to baseUrl:
+Sets the URLs/paths to files, as well as specifying if a module ID prefix is a package that contains a "main" module inside of it.
+
+The reasoning behind the choice of format for the locations is explored more in [design-background/locations-config](https://github.com/jrburke/module/blob/master/docs/design-background/loader-config.md).
+
+The general format for a "locations" config entry. The < > parts indicate logical names for parts that may show up. Three types of ID-segment specifiers can be used
+
+    <id-segment> : <urlpath-segment> - Matches id-segment and id-segment/sub, unless second form is set
+    <id-segment>/ : <urlpath-segment> - Matches only id-segment/sub IDs
+    <id-segment>{main-sub-id} : <urlpath-segment> - package config
+
+Passing a a value that is `null` or `false`, will be the way to clear a locations entry from a loader, in the case of a reset.
+
+Location values can be relative paths, and in those cases, they are relative to the baseUrl. For package config, if the package can be found at the baseUrl, then an empty string can be used for the locations value.
+
+Examples
 
 ```javascript
-// With this config, these module IDs are found at these locations, all
-// relative to baseUrl
-// 'crypto'     -> '../vendor/crypto.js'
-// 'crypto/aes' -> '../vendor/crypto/aes.js'
-locations: {
-  'crypto': '../vendor/*.js'
-}
+module.top.config({
+  locations: {
+    // Basic module ID prefix setup
+    'crypto': 'vendor/crypto',
 
-// 'db'        -> 'db.js', relative to baseUrl
-// 'db/remote' -> '//example.com/services/db/remote'
-locations: {
-  'db/remote': '//example.com/services/*'
-}
+    // Only a submodule ID under 'db' gets a remote URL
+    'db/remote': '//example.com/services/db/remote',
 
-// 'config' -> '//example.com/services/*.js?cachebust=383844993922'
-locations: {
-  'config': '//example.com/services/*.js?cachebust=' + Date.now()
-}
+    // jQuery from vendor, plugins from another area
+    'jquery': 'vendor/jquery',
+    'jquery/': 'plugins/jquery',
 
-// 'lodash'          -> 'vendor/built/lodash.js'
-// 'lodash/each'     -> 'vendor/built/lodash.js'
-// 'lodash/filter'   -> 'vendor/built/lodash.js'
-locations: {
-  'lodash': 'vendor/built/lodash.js'
-}
-```
-
-(`locations` is used as the name for this type of config instead of `paths` to relate it closer to the `locate` loader hook, which translates a module ID to a path location).
-
-#### package-style locations
-
-A package is a set of modules in a directory where there is a "main" module that can be referenced by outside code by just using the package's name.
-
-There is no need for any special `locations` config if you lay out the code on disk such that there is a `packageName.js` as a sibling to the `packageName` directory. If the "main" module for that package was at `packageName/main.js`, then `packageName.js` would look like so:
-
-```javascript
-module.export = module('packageName/main');
-```
-
-However, if you do not control the file system layout and cannot create that adapter module, there is a `locations` config object with the following form that can be used instead:
-
-```javascript
-'locations': {
-  'lodash': {
-    'location': '../vendor/lodash/*.js'
-    'main': 'main'
+    // A "package" setup
+    'lodash{main}': 'vendor/lodash'
   }
-}
+});
+
+// Basic module ID prefix setup
+module.locate('crypto', 'js') // 'vendor/crypto.js'
+module.locate('crypto/aes', 'js') // 'vendor/crypto/aes.js'
+
+// Only a submodule ID under 'db' gets a remote URL
+module.locate('db', 'js') // 'db.js'
+module.locate('db/remote', 'js') // '//example.com/services/db/remote.js'
+
+// jQuery from vendor, plugins from another area
+module.locate('jquery', 'js') // 'vendor/jquery.js'
+module.locate('jquery/jquery.scroll', 'js') // 'plugins/jquery/jquery.scroll.js'
+
+// A "package" setup
+module.locate('lodash', 'js') // 'vendor/lodash/main.js'
+module.locate('jquery/each', 'js') // 'plugins/lodash/each.js'
 ```
 
-Internally, the loader will just create a similar adapter module under the 'packageName' module ID that just depends on the 'packageName/main' module (if main.js is the main module for that package directory).
+**Notes on package config**:
 
-This special configuration is needed for packages that have a main config to allow modules inside the package to reference on the main module via a relative ID.
+The special configuration is needed for packages that have a main config to allow modules inside the package to reference on the main module via a relative ID.
 
-In the above example, if 'lodash/filter' wanted to use something in 'lodash/main', it should just be able to use `module('./main')` to access it. With a plain `locations` config, it would result in two module entries, one for 'lodash' and 'lodash/main', which would be separate module instances of the same module. That would likely cause problems.
+In the above example, if 'lodash/filter' wanted to use something in 'lodash/main', it should just be able to use `module('./main')` to access it. With a plain `locations` config, it would result in two module entries, one for 'lodash' and 'lodash/main', which would be separate module instances of the same module, an undesirable and confusing result.
 
-**Notes**:
-
-1) package-style location config is only possible for the first segment of a module ID. So, 'lodash' can use this style of location config, but 'utilities/lodash' would not work.
-
-2) The 'main' value should not include a file extension, like '.js'. It is actually a module ID segment that is based on the directory name. So, in the above example, if the main module was actually at '../vendor/lodash/lib/main.js', then the 'main' value would be 'lib/main'.
+The "main" value, specified in the `{}` part of the property hame, should not include a file extension, like '.js'. It is actually a module ID segment that is based on the directory name. So, in the above example, if the main module was actually at 'vendor/lodash/lib/main.js', then the 'main' value would be 'lib/main'.
 
 ### alias
 

@@ -15,6 +15,37 @@ after initial creation, and to have that cascade to nested `module` instances.
 
 todo:
 
-
+* bundles config?
 * createHooks
 * update loader-config.md to mention current supported syntax.
+
+
+Old design with stars. Still all covered?
+
+```javascript
+// With this config, these module IDs are found at these locations, all
+// relative to baseUrl
+// 'crypto'     -> '../vendor/crypto.js'
+// 'crypto/aes' -> '../vendor/crypto/aes.js'
+locations: {
+  'crypto': '../vendor/*.js'
+}
+
+// 'db'        -> 'db.js', relative to baseUrl
+// 'db/remote' -> '//example.com/services/db/remote'
+locations: {
+  'db/remote': '//example.com/services/*'
+}
+
+// 'config' -> '//example.com/services/*.js?cachebust=383844993922'
+locations: {
+  'config': '//example.com/services/*.js?cachebust=' + Date.now()
+}
+
+// 'lodash'          -> 'vendor/built/lodash.js'
+// 'lodash/each'     -> 'vendor/built/lodash.js'
+// 'lodash/filter'   -> 'vendor/built/lodash.js'
+locations: {
+  'lodash': 'vendor/built/lodash.js'
+}
+```
