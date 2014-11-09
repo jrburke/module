@@ -2,9 +2,9 @@
 
 By default, the loader will load items from `baseUrl + module ID + '.js'`, and all scripts that use the module system will be evaluated in strict mode.
 
-The following configuration options allow some declarative ways to modify that default behavior, as well as a `createHooks` capability to provide imperative overrides.
+The following configuration options allow some declarative ways to modify that default behavior, as well as a `loaderHooks` capability to provide imperative overrides.
 
-For some environments, like Node, the default loader in that environment can provide `createHooks` overrides to these base config values, and delegate to them when/if they seem appropriate.
+For some environments, like Node, the default loader in that environment can provide `loaderHooks` overrides to these base config values, and delegate to them when/if they seem appropriate.
 
 ## Config API
 
@@ -105,14 +105,14 @@ This is different from `locations` config. `locations` is only for setting up ro
 
 ```javascript
 {
-    alias: {
-        'some/newmodule': {
-            'foo': 'foo1.2'
-        },
-        'some/oldmodule': {
-            'foo': 'foo1.0'
-        }
+  alias: {
+    'some/newmodule': {
+      'foo': 'foo1.2'
+    },
+    'some/oldmodule': {
+      'foo': 'foo1.0'
     }
+  }
 }
 ```
 
@@ -133,17 +133,17 @@ Any module ID prefix can be used for the alias properties, and the aliases can p
 Example:
 
 ```javascript
-{
-    alias: {
-        'some/newmodule': {
-            'foo': 'foo2',
-            'foo/bar': 'foo1.2/bar3'
-        },
-        'some/oldmodule': {
-            'foo/bar/baz': 'foo1.0/bar/baz2'
-        }
+module.top.config({
+  alias: {
+    'some/newmodule': {
+      'foo': 'foo2',
+      'foo/bar': 'foo1.2/bar3'
+    },
+    'some/oldmodule': {
+      'foo/bar/baz': 'foo1.0/bar/baz2'
     }
-}
+  }
+});
 ```
 
 If 'some/module/sub' asks for 'foo' it gets 'foo2'. If 'some/module/sub' asks for 'foo/bar' it gets 'foo1.2/bar3'.
@@ -153,16 +153,16 @@ There is a "*" alias value which means "for all modules loaded, use this alias c
 Example:
 
 ```javascript
-{
-    alias: {
-        '*': {
-            'foo': 'foo1.2'
-        },
-        'some/oldmodule': {
-            'foo': 'foo1.0'
-        }
+module.top.config({
+  alias: {
+    '*': {
+      'foo': 'foo1.2'
+    },
+    'some/oldmodule': {
+      'foo': 'foo1.0'
     }
-}
+  }
+});
 ```
 
 In this example if 'some/oldmodule' asks for 'foo', it will get 'foo1.0', where if any other module who asks for 'foo' will get 'foo1.2'.
@@ -176,18 +176,60 @@ The data is set inside the `moduleData` config object, and modules with a matchi
 Example:
 
 ```javascript
-{
-    moduleData: {
-        'some/module/id': {
-            limit: 40
-        }
+module.top.config({
+  moduleData: {
+    'some/module/id': {
+      limit: 40
     }
-}
+  }
+});
 ```
 
 For the module that resolves to the absolute module ID of 'some/module/id', `module.data.limit === 40`.
 
-### createHooks
+### loaderHooks
 
-xxx
+```javascript
+
+{
+  result: '',
+  args: []
+}
+
+module.top.config({
+
+  // are these called after promise resolution? yes, otherwise too
+  // crazy. What is the expectation though for multiple calls to
+  // on: ? Do they overwrite like normal config? Or are they just
+  // additive? Better to just call these as methods on the loader,
+  // imperatively. But that make it hard to use in optimization runs?
+  // Maybe that a separate issue, may actually be a plus.
+  // So stick with imperative API.
+  // Make sure sub-loader calls call the top level loader eventer.
+  on: {
+    normalize: function(event) {
+      event.result = event.result ....
+    },
+    locate: function(event) {
+      event.result += '?cachebust=' + Date.now();
+    },
+
+    fetch:
+
+    translate:
+
+  }
+
+
+
+  loaderHooks: function(T) {
+    var locate = this.locate(this);
+    this.locate = function(id) {
+      return locate.apply(this, apply) + '?cachebust=' + Date.now();
+    };
+  }
+});
+```
+
+
 

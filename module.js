@@ -5731,6 +5731,16 @@ var parse;
     });
   }
 
+  function getValueFromEmit(loader, eventName, value, args) {
+    var evt = {
+      result: value,
+      args: args
+
+    };
+    loader.emit(eventName, evt);
+    return evt.result;
+  }
+
   // TODO: probably need to do something different here. For now,
   // at least throw to indicate an error that may be swallowed
   // by a promise flow.
@@ -6049,35 +6059,41 @@ var parse;
                              name);
 
         result = pkgMain || name;
-        return wantSync ? result : Promise.resolve(result);
       } else {
         // Plugin time
         var pluginId = name.substring(0, pluginIndex),
             resourceId = name.substring(pluginIndex + 1),
-            normalizedPluginId = this.normalize(pluginId,
-                                                refererName);
-
-        if (typeof normalizedPluginId !== 'string') {
-          throw new Error('Normalization of plugin ID needs to complete ' +
-                          'synchronously for: ' + name);
-        }
+            normalizedPluginId = this._normalize(true, pluginId, refererName);
 
         if (wantSync) {
           if (this._hasNormalized(normalizedPluginId)) {
             var mod = this._getModuleNormalized(normalizedPluginId);
-            return (mod.moduleNormalize ? mod : this)
-                    .moduleNormalize(resourceId, refererName);
+            if (mod.moduleNormalize) {
+              result = mod.moduleNormalize(resourceId, refererName);
+            } else {
+              return this._normalize(true, resourceId, refererName);
+            }
           } else {
             throw new Error(normalizedPluginId + ' needs to be loaded before ' +
                            'it can be used in a module.normalize call');
           }
         } else {
           return this.use(normalizedPluginId).then(function(mod) {
-            return (mod.normalize ? mod : this)
-                    .normalize(resourceId, refererName);
+            if (mod.normalize) {
+              return mod.normalize(resourceId, refererName)
+              .then(function(value) {
+                return getValueFromEmit(this, 'normalize',
+                                        value, [name, refererName]);
+              }.bind(this));
+            } else {
+              return this._normalize(false, resourceId, refererName);
+            }
           });
         }
       }
+
+      result = getValueFromEmit(this, 'normalize', result, [name, refererName]);
+      return wantSync ? result : Promise.resolve(result);
     },
 
     normalize: function(name, refererName) {
@@ -6092,7 +6108,8 @@ var parse;
       // entry: name, metadata
       var segment, pluginId, resourceId, name, separatorIndex,
           location, slashIndex,
-          normalizedLocations = this.options._normalizedLocations;
+          normalizedLocations = this.options._normalizedLocations,
+          locateArgs = slice(arguments);
 
       segment = name = entry.name;
       separatorIndex = name.indexOf(pluginSeparator);
@@ -6135,8 +6152,6 @@ var parse;
         if (extension && location.indexOf('data:') !== 0) {
           location += '.' + extension;
         }
-
-        return wantSync ? location : Promise.resolve(location);
       } else {
         // Use plugin to locate
         pluginId = name.substring(0, separatorIndex);
@@ -6145,30 +6160,47 @@ var parse;
         if (wantSync) {
           if (this._hasNormalized(pluginId)) {
             var mod = this._getModuleNormalized(pluginId);
-            return (mod.moduleLocate ? mod : this).moduleLocate({
-                     name: resourceId
-                   }, extension);
+            if (mod.moduleLocate) {
+              location = mod.moduleLocate({
+                name: resourceId
+              }, extension);
+            } else {
+              return this._locate(true, {
+                name: resourceId
+              }, extension);
+            }
           } else {
             throw new Error(pluginId + ' needs to be loaded before ' +
                            'it can be used in a module.locate call');
           }
         } else {
           return this.use(pluginId).then(function(mod) {
-            return (mod.locate ? mod : this).locate({
-                     name: resourceId
-                   }, extension);
+            if (mod.locate) {
+              return mod.locate({
+                name: resourceId
+              }, extension).then(function(location) {
+                return getValueFromEmit(this, 'locate', location, locateArgs);
+              }.bind(this));
+            } else {
+              return this._locate(false, {
+               name: resourceId
+              }, extension);
+            }
           });
         }
 
       }
+
+      location =  getValueFromEmit(this, 'locate', location, locateArgs);
+      return wantSync ? location : Promise.resolve(location);
     },
 
-    locate: function(name, refererName) {
-      return this._locate(false, name, refererName);
+    locate: function(entry, extension) {
+      return this._locate(false, entry, extension);
     },
 
-    moduleLocate: function(name, refererName) {
-      return this._locate(true, name, refererName);
+    moduleLocate: function(entry, extension) {
+      return this._locate(true, entry, extension);
     },
 
     fetch: function(entry) {
@@ -6226,6 +6258,9 @@ var parse;
         locations: {},
         moduleData: {}
       };
+
+      // Holds on to event listeners
+      this._events = {};
     }
   }
 
@@ -6246,9 +6281,9 @@ var parse;
         }
 
         var value = options[key];
-        if (options.createHooks) {
+        if (options.loaderHooks) {
           // Wire up hooks
-          var hooks = options.createHooks(this);
+          var hooks = options.loaderHooks(this);
           var module = this.moduleApi;
           Object.keys(hooks).forEach(function(key) {
             module[key] = hooks[key];
@@ -6670,6 +6705,33 @@ waitInterval config
         data = this.options.moduleData[this._refererName] = Object.create(null);
       }
       return data;
+    },
+
+    // Event APIs
+    emit: function(id, event) {
+      // Emit only on the parent, which has the public listeners.
+      if (this.top !== this) {
+        this.top.emit(id, event);
+      } else {
+        var listeners = this._events[id];
+        if (listeners) {
+          listeners.forEach(function(fn) {
+            try {
+              fn.call(null, event);
+            } catch (e) {
+              // Throw at later turn so that other listeners
+              // can complete. While this messes with the
+              // stack for the error, continued operation is
+              // valued more in this tradeoff.
+              // This also means we do not need to .catch()
+              // for the wrapping promise.
+              setTimeout(function() {
+                throw e;
+              });
+            }
+          });
+        }
+      }
     }
     // END MIRROR OF PUBLIC API
   });
@@ -6723,9 +6785,35 @@ waitInterval config
     };
 
     if (!parentPrivateLoader) {
-      module.config = function(options) {
-        return privateLoader.config(options);
-      };
+      mix(module, {
+        config: function(options) {
+          return privateLoader.config(options);
+        },
+
+        on: function(id, fn) {
+          var listeners = privateLoader._events[id];
+          if (!listeners) {
+            listeners = privateLoader._events[id] = [];
+          }
+          if (listeners.indexOf(fn) === -1) {
+            listeners.push(fn);
+          }
+        },
+
+        removeListener: function(id, fn) {
+          var i,
+              listeners = privateLoader._events[id];
+          if (listeners) {
+            i = listeners.indexOf(fn);
+            if (i !== -1) {
+              listeners.splice(i, 1);
+            }
+            if (listeners.length === 0) {
+              delete privateLoader._events[id];
+            }
+          }
+        }
+      });
     }
 
     privateLoader.config(options);

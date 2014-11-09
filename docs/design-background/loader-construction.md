@@ -16,7 +16,7 @@ after initial creation, and to have that cascade to nested `module` instances.
 todo:
 
 * bundles config?
-* createHooks
+* loaderHooks
 * update loader-config.md to mention current supported syntax.
 
 
