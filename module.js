@@ -5617,6 +5617,10 @@ var parse;
   var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
   var lifecycleApis = ['normalize', 'locate', 'fetch', 'translate',
                        'moduleNormalize', 'moduleLocate'];
+  var hasSyncModuleApi = {
+    normalize: true,
+    locate: true
+  };
   var moduleLocalApis = {
     moduleNormalize: true,
     moduleLocate: true
@@ -5735,6 +5739,10 @@ var parse;
       xhr.responseType = 'text';
       xhr.send(null);
     });
+  }
+
+  function toSyncModuleName(fnName) {
+    return 'module' + fnName.charAt(0).toUpperCase() + fnName.substring(1);
   }
 
   function getValueFromEmit(loader, eventName, value, args) {
@@ -6082,15 +6090,19 @@ var parse;
         // Plugin time
         var pluginId = name.substring(0, pluginIndex),
             resourceId = name.substring(pluginIndex + 1),
-            normalizedPluginId = this._normalize(true, pluginId, refererName);
-
+            normalizedPluginId = callSyncFnWithListeners(
+                                   this,
+                                   'moduleNormalize',
+                                   [pluginId, refererName]
+                                 );
         if (wantSync) {
           if (this._hasNormalized(normalizedPluginId)) {
             var mod = this._getModuleNormalized(normalizedPluginId);
             if (mod.moduleNormalize) {
               result = mod.moduleNormalize(resourceId, refererName);
             } else {
-              return this._normalize(true, resourceId, refererName);
+              return callSyncFnWithListeners(this, 'moduleNormalize',
+                                            [resourceId, refererName]);
             }
           } else {
             throw new Error(normalizedPluginId + ' needs to be loaded before ' +
@@ -6105,13 +6117,12 @@ var parse;
                                         value, [name, refererName]);
               }.bind(this));
             } else {
-              return this._normalize(false, resourceId, refererName);
+              return this.normalize(resourceId, refererName);
             }
           });
         }
       }
 
-      result = getValueFromEmit(this, 'normalize', result, [name, refererName]);
       return wantSync ? result : Promise.resolve(result);
     },
 
@@ -6184,7 +6195,7 @@ var parse;
                 name: resourceId
               }, extension);
             } else {
-              return this._locate(true, {
+              return this.moduleApi.localize({
                 name: resourceId
               }, extension);
             }
@@ -6200,7 +6211,7 @@ var parse;
                 return getValueFromEmit(this, 'locate', location, locateArgs);
               }.bind(this));
             } else {
-              return this._locate(false, {
+              return this.moduleApi.localize({
                name: resourceId
               }, extension);
             }
@@ -6208,7 +6219,6 @@ var parse;
         }
       }
 
-      location =  getValueFromEmit(this, 'locate', location, locateArgs);
       return wantSync ? location : Promise.resolve(location);
     },
 
@@ -6582,8 +6592,7 @@ waitInterval config
 
     // START MIRROR OF PUBLIC API
     getModule: function(name) {
-      return this._getModuleNormalized(this.moduleNormalize(name,
-                                                            this._refererName));
+      return this._getModuleNormalized(this.moduleApi.normalize(name));
     },
 
     setExport: function(value) {
@@ -6719,11 +6728,11 @@ waitInterval config
     },
 
     has: function(name) {
-      return this._hasNormalized(this.moduleNormalize(name));
+      return this._hasNormalized(this.moduleApi.normalize(name));
     },
 
     delete: function(name) {
-      var normalizedName = this.moduleNormalize(name);
+      var normalizedName = this.moduleApi.normalize(name);
       if (this._hasOwnNormalized(normalizedName)) {
         delete this._modules[normalizedName];
       } else {
@@ -6806,7 +6815,7 @@ waitInterval config
 
     module.normalize = function(name) {
       return callSyncFnWithListeners(privateLoader, 'moduleNormalize',
-                              [name, privateLoader._refererName]);
+                                     [name, privateLoader._refererName]);
     };
 
     module.locate = function(name, extension) {
@@ -6831,6 +6840,10 @@ waitInterval config
           if (listeners.indexOf(fn) === -1) {
             listeners.push(fn);
           }
+
+          if (hasSyncModuleApi[id] === true) {
+            this.on(toSyncModuleName(id), fn);
+          }
         },
 
         removeListener: function(id, fn) {
@@ -6844,6 +6857,10 @@ waitInterval config
             if (listeners.length === 0) {
               delete privateLoader._events[id];
             }
+          }
+
+          if (hasSyncModuleApi[id] === true) {
+            this.removeListener(toSyncModuleName(id), fn);
           }
         }
       });

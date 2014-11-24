@@ -3,8 +3,8 @@
 // Add entries to the sources object in config/lifecycle/config.js
 // End result for source that is evaluated is like:
 // module.export = function() { return "aon"; };
-sources['modules/aon.jfon'] = 'fn2() { return "a"; };';
-sources['modules/bon.jfon'] = 'fn2() { return "b"; };';
+sources['modules/aon.jfon'] = 'fn() { return "a"; };';
+sources['modules/bon.jfon'] = 'fn() { return "b"; };';
 
 
 module.on('normalize', function(event) {

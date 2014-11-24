@@ -6,13 +6,11 @@ module.on('locate', function(event) {
   event.result += '?cachebust=2';
 });
 
-
 module.define('c/minor', function(module) {
   module.export = {
     name: 'c/minor'
   };
 });
-
 
 module.define('a', function(module) {
   module.export = {

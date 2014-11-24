@@ -207,7 +207,9 @@ Instead of constructing a full loader hook, it is desirable to just modify the r
 
 For these kinds of small modifications, implementing a full hook that knows how to properly participate in a Promise workflow is very heavyweight. There is an `on` event listener capability.
 
-It is an imperative API, and therefore, running these handlers should not be expected to be done during build tools. The API is only on a "top" loader, like `module.top`. Any of the lifecycle functions are candidates for `on` listening.
+It is an imperative API, and therefore, running these handlers should not be expected to be done during build tools. The API is only on a "top" loader, like `module.top`.
+
+Any of the lifecycle functions are candidates for `on` listening, with the following note: registering a 'normalize' also automatically registers for 'moduleNormalize' and 'locate' also automatically registers for 'moduleLocate'. This is done because both variations of the normalize and locate funcationality are used for full resolution capabilities, and since the `on` listeners must complete their work synchronously can be applied in both async and sync cases.
 
 Example, which adds a cachebust argumetn to the URL:
 
@@ -215,6 +217,12 @@ Example, which adds a cachebust argumetn to the URL:
 module.top.on('locate', function(event) {
   event.result += '?cachebust=' + Date.now();
 });
+```
+
+There is a `removeListener` call that can be called to remove a listener. Same automatic behavior for 'normalize' and 'locate' apply to `removeListener`:
+
+```javascript
+module.top.removeListener('locate', onLocate);
 ```
 
 The `event` object has two properties on it:
