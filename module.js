@@ -5615,6 +5615,12 @@ var parse;
       pluginSeparator = '!';
 
   var publicModuleApis = ['exportDefine', 'define', 'use', 'has', 'delete'];
+  var lifecycleApis = ['normalize', 'locate', 'fetch', 'translate',
+                       'moduleNormalize', 'moduleLocate'];
+  var moduleLocalApis = {
+    moduleNormalize: true,
+    moduleLocate: true
+  };
 
   // Easy implementation solution for exportDefine for now, but will move
   // to a separate storage area for that factory function later to avoid this.
@@ -5741,13 +5747,14 @@ var parse;
     return evt.result;
   }
 
-  function callSyncHookWithListeners(loader, hookName, args) {
+  function callSyncFnWithListeners(loader, hookName, args) {
     var value = loader[hookName].apply(loader, args);
     return getValueFromEmit(loader, hookName, value, args);
   }
 
-  function callPromiseHookWithListeners(loader, hookName, args) {
-    return loader[hookName].apply(loader, args).then(function (value) {
+  function callPromiseFnWithListeners(loader, hookName, args) {
+    return loader[hookName].apply(loader, args)
+    .then(function (value) {
       return getValueFromEmit(loader, hookName, value, args);
     });
   }
@@ -5783,16 +5790,10 @@ var parse;
     var normalizedName = entry.name,
         address = entry.address;
 
-    var fetch = loader.fetch(entry)
-    .then(function(fetchSource) {
-      return getValueFromEmit(loader, 'fetch', fetchSource, [entry]);
-    })
+    var fetch = callPromiseFnWithListeners(loader, 'fetch', [entry])
     .then(function(source) {
       entry.source = source;
-      return loader.translate(entry);
-    })
-    .then(function(translatedSource) {
-      return getValueFromEmit(loader, 'translate', translatedSource, [entry]);
+      return callPromiseFnWithListeners(loader, 'translate', [entry]);
     })
     .then(function(source) {
       try {
@@ -5842,7 +5843,7 @@ var parse;
     if (!entry._registered) {
       entry._fetching = true;
 
-      callPromiseHookWithListeners(loader, 'locate', [entry, 'js'])
+      callPromiseFnWithListeners(loader, 'locate', [entry, 'js'])
         .then(function(address) {
           entry.address = address;
 
@@ -5896,8 +5897,7 @@ var parse;
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return callPromiseHookWithListeners(loader, 'normalize',
-                                          [dep, entry.name]);
+      return callPromiseFnWithListeners(loader, 'normalize', [dep, entry.name]);
     }))
     .then(function(normalizedDeps) {
       entry.deps = normalizedDeps;
@@ -6296,12 +6296,28 @@ var parse;
         }
 
         var value = options[key];
-        if (options.loaderHooks) {
-          // Wire up hooks
-          var hooks = options.loaderHooks(this);
-          var module = this.moduleApi;
-          Object.keys(hooks).forEach(function(key) {
-            module[key] = hooks[key];
+        if (options.lifecycle) {
+          var oldLoader = {},
+              thisLoader = this;
+
+          // Create a "state of loader lifecycle methods at this point" object
+          lifecycleApis.forEach(function(key) {
+            var obj = moduleLocalApis[key] ? thisLoader.moduleApi : thisLoader,
+                fn = obj[key];
+
+            oldLoader[key] = function() {
+              return fn.apply(obj, arguments);
+            };
+          });
+
+          var fns = options.lifecycle(oldLoader);
+
+          lifecycleApis.forEach(function(key) {
+            var obj = moduleLocalApis[key] ? thisLoader.moduleApi : thisLoader;
+            var fn = fns[key];
+            if (typeof fn === 'function') {
+              obj[key] = fn;
+            }
           });
         } else if (key === 'locations') {
           // Look for a package
@@ -6635,8 +6651,8 @@ waitInterval config
           uniqueNames = [];
 
       var p = prim.all(args.map(function(name) {
-        return callPromiseHookWithListeners(this, 'normalize',
-                                            [name, this._refererName]);
+        return callPromiseFnWithListeners(this, 'normalize',
+                                          [name, this._refererName]);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -6789,15 +6805,15 @@ waitInterval config
     module.Loader = Loader;
 
     module.normalize = function(name) {
-      callSyncHookWithListeners(privateLoader, 'moduleNormalize',
-                                [name, privateLoader._refererName]);
+      return callSyncFnWithListeners(privateLoader, 'moduleNormalize',
+                              [name, privateLoader._refererName]);
     };
 
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
-      return callSyncHookWithListeners(privateLoader, 'moduleLocate', [{
-        name: privateLoader.moduleNormalize(name, privateLoader._refererName)
+      return callSyncFnWithListeners(privateLoader, 'moduleLocate', [{
+        name: module.normalize(name, privateLoader._refererName)
       }, extension]);
     };
 

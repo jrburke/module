@@ -15,8 +15,10 @@ after initial creation, and to have that cascade to nested `module` instances.
 
 todo:
 
+* lifecycle test with nested modules, do they get the overrides?
+* Describe how lifecycle events are different from imperative overrides. Hmm, should they be?
+* entry objects have a lot of data on them now, restrict for lifecycle calls?
 * bundles config?
-* loaderHooks
 * update loader-config.md to mention current supported syntax.
 
 

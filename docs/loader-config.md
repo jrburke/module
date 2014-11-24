@@ -2,9 +2,9 @@
 
 By default, the loader will load items from `baseUrl + module ID + '.js'`, and all scripts that use the module system will be evaluated in strict mode.
 
-The following configuration options allow some declarative ways to modify that default behavior, as well as a `loaderHooks` capability to provide imperative overrides.
+The following configuration options allow some declarative ways to modify that default behavior, as well as a `lifecycle` capability to provide imperative overrides.
 
-For some environments, like Node, the default loader in that environment can provide `loaderHooks` overrides to these base config values, and delegate to them when/if they seem appropriate.
+For some environments, like Node, the default loader in that environment can provide `lifecycle` overrides to these base config values, and delegate to them when/if they seem appropriate.
 
 ## Config API
 
@@ -187,9 +187,19 @@ module.top.config({
 
 For the module that resolves to the absolute module ID of 'some/module/id', `module.data.limit === 40`.
 
-### loaderHooks
+### lifecyle
 
-??? TODO
+module.top.config({
+  lifecycle: function(loader) {
+    return {
+      normalize: function(name, refererName) {
+        return loader.normalize(name, referName).then(function(value) {
+          return value + '/jazzy';
+        });
+      }
+    }
+  }
+})
 
 ## Event listeners (on)
 
@@ -197,7 +207,7 @@ Instead of constructing a full loader hook, it is desirable to just modify the r
 
 For these kinds of small modifications, implementing a full hook that knows how to properly participate in a Promise workflow is very heavyweight. There is an `on` event listener capability.
 
-It is an imperative API, and therefore, running these handlers should not be expected to be done during build tools. The API is only on a "top" loader, like `module.top. Any of the loaderHooks hooks are candidates for `on` listening.
+It is an imperative API, and therefore, running these handlers should not be expected to be done during build tools. The API is only on a "top" loader, like `module.top`. Any of the lifecycle functions are candidates for `on` listening.
 
 Example, which adds a cachebust argumetn to the URL:
 
