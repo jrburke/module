@@ -153,6 +153,17 @@ var module;
     return evt.result;
   }
 
+  function callSyncHookWithListeners(loader, hookName, args) {
+    var value = loader[hookName].apply(loader, args);
+    return getValueFromEmit(loader, hookName, value, args);
+  }
+
+  function callPromiseHookWithListeners(loader, hookName, args) {
+    return loader[hookName].apply(loader, args).then(function (value) {
+      return getValueFromEmit(loader, hookName, value, args);
+    });
+  }
+
   // TODO: probably need to do something different here. For now,
   // at least throw to indicate an error that may be swallowed
   // by a promise flow.
@@ -185,9 +196,15 @@ var module;
         address = entry.address;
 
     var fetch = loader.fetch(entry)
+    .then(function(fetchSource) {
+      return getValueFromEmit(loader, 'fetch', fetchSource, [entry]);
+    })
     .then(function(source) {
       entry.source = source;
       return loader.translate(entry);
+    })
+    .then(function(translatedSource) {
+      return getValueFromEmit(loader, 'translate', translatedSource, [entry]);
     })
     .then(function(source) {
       try {
@@ -236,7 +253,8 @@ var module;
 
     if (!entry._registered) {
       entry._fetching = true;
-      loader.locate(entry, 'js')
+
+      callPromiseHookWithListeners(loader, 'locate', [entry, 'js'])
         .then(function(address) {
           entry.address = address;
 
@@ -290,7 +308,8 @@ var module;
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return loader.normalize(dep, entry.name);
+      return callPromiseHookWithListeners(loader, 'normalize',
+                                          [dep, entry.name]);
     }))
     .then(function(normalizedDeps) {
       entry.deps = normalizedDeps;
@@ -588,9 +607,8 @@ var module;
         } else {
           return this.use(pluginId).then(function(mod) {
             if (mod.locate) {
-              return mod.locate({
-                name: resourceId
-              }, extension).then(function(location) {
+              return mod.locate({ name: resourceId }, extension)
+              .then(function(location) {
                 return getValueFromEmit(this, 'locate', location, locateArgs);
               }.bind(this));
             } else {
@@ -600,7 +618,6 @@ var module;
             }
           });
         }
-
       }
 
       location =  getValueFromEmit(this, 'locate', location, locateArgs);
@@ -617,14 +634,12 @@ var module;
 
     fetch: function(entry) {
       // entry: name, metadata, address
-
       return fetchText(entry.address);
     },
 
     translate: function(entry) {
       //entry: name, metadata, address, source
-
-      return entry.source;
+      return Promise.resolve(entry.source);
     }
     // END module lifecycle events
   };
@@ -1032,7 +1047,8 @@ waitInterval config
           uniqueNames = [];
 
       var p = prim.all(args.map(function(name) {
-        return this.normalize(name, this._refererName);
+        return callPromiseHookWithListeners(this, 'normalize',
+                                            [name, this._refererName]);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -1185,15 +1201,16 @@ waitInterval config
     module.Loader = Loader;
 
     module.normalize = function(name) {
-      return privateLoader.moduleNormalize(name, privateLoader._refererName);
+      callSyncHookWithListeners(privateLoader, 'moduleNormalize',
+                                [name, privateLoader._refererName]);
     };
 
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
-      return privateLoader.moduleLocate({
+      return callSyncHookWithListeners(privateLoader, 'moduleLocate', [{
         name: privateLoader.moduleNormalize(name, privateLoader._refererName)
-      }, extension);
+      }, extension]);
     };
 
     if (!parentPrivateLoader) {

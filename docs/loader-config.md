@@ -189,47 +189,28 @@ For the module that resolves to the absolute module ID of 'some/module/id', `mod
 
 ### loaderHooks
 
+??? TODO
+
+## Event listeners (on)
+
+Instead of constructing a full loader hook, it is desirable to just modify the result of a hook before it is finally used. The usual example is adding a cachebusting argument or a hash value to a URL for a locate call, for breaking cache reasons.
+
+For these kinds of small modifications, implementing a full hook that knows how to properly participate in a Promise workflow is very heavyweight. There is an `on` event listener capability.
+
+It is an imperative API, and therefore, running these handlers should not be expected to be done during build tools. The API is only on a "top" loader, like `module.top. Any of the loaderHooks hooks are candidates for `on` listening.
+
+Example, which adds a cachebust argumetn to the URL:
+
 ```javascript
-
-{
-  result: '',
-  args: []
-}
-
-module.top.config({
-
-  // are these called after promise resolution? yes, otherwise too
-  // crazy. What is the expectation though for multiple calls to
-  // on: ? Do they overwrite like normal config? Or are they just
-  // additive? Better to just call these as methods on the loader,
-  // imperatively. But that make it hard to use in optimization runs?
-  // Maybe that a separate issue, may actually be a plus.
-  // So stick with imperative API.
-  // Make sure sub-loader calls call the top level loader eventer.
-  on: {
-    normalize: function(event) {
-      event.result = event.result ....
-    },
-    locate: function(event) {
-      event.result += '?cachebust=' + Date.now();
-    },
-
-    fetch:
-
-    translate:
-
-  }
-
-
-
-  loaderHooks: function(T) {
-    var locate = this.locate(this);
-    this.locate = function(id) {
-      return locate.apply(this, apply) + '?cachebust=' + Date.now();
-    };
-  }
+module.top.on('locate', function(event) {
+  event.result += '?cachebust=' + Date.now();
 });
 ```
 
+The `event` object has two properties on it:
 
+* `result`: The result of the loader call. Modify it to modify the value that will finally be used inside the loader.
+* `args`: an array of arguments to the original loaderHook call. These are just informational, in case the `on` listener needs to modify its result based on the arguments. The values in the `args` array should not be modified.
+
+The `on` listener needs to do its work synchronously. Any `evt.result` modification after the listener's function completes is ignored.
 
