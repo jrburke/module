@@ -4,6 +4,7 @@ doh.registerUrl('baseSimple', '../base/simple/test.html');
 
 doh.registerUrl('configAlias', '../config/alias/test.html');
 doh.registerUrl('configLifecycle', '../config/lifecycle/test.html');
+doh.registerUrl('configLifecycleNested', '../config/lifecycle/testNested.html');
 doh.registerUrl('configLocations', '../config/locations/test.html');
 doh.registerUrl('configModuleData', '../config/moduleData/test.html');
 

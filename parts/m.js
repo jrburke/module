@@ -153,6 +153,24 @@ var module;
     });
   }
 
+  function getRefName(privateLoader, refName) {
+    // Workaround for the specialExportLocalName, in that case, want the
+    // containing module's refererName as the name, for any local ID resolutions
+    if (refName === specialExportLocalName) {
+      var p = privateLoader._parent;
+      while (p && p._refererName === specialExportLocalName) {
+        p = p._parent;
+      }
+      if (p) {
+        refName = p._refererName;
+      } else {
+        throw new Error('Invalid use of exportDefine');
+      }
+    }
+
+    return refName;
+  }
+
   function toSyncModuleName(fnName) {
     return 'module' + fnName.charAt(0).toUpperCase() + fnName.substring(1);
   }
@@ -168,12 +186,12 @@ var module;
   }
 
   function callSyncFnWithListeners(loader, hookName, args) {
-    var value = loader[hookName].apply(loader, args);
+    var value = loader.top[hookName].apply(loader, args);
     return getValueFromEmit(loader, hookName, value, args);
   }
 
   function callPromiseFnWithListeners(loader, hookName, args) {
-    return loader[hookName].apply(loader, args)
+    return loader.top[hookName].apply(loader, args)
     .then(function (value) {
       return getValueFromEmit(loader, hookName, value, args);
     });
@@ -317,7 +335,8 @@ var module;
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return callPromiseFnWithListeners(loader, 'normalize', [dep, entry.name]);
+      return callPromiseFnWithListeners(loader, 'normalize',
+                                  [dep, getRefName(entry._loader, entry.name)]);
     }))
     .then(function(normalizedDeps) {
       entry.deps = normalizedDeps;
@@ -724,7 +743,7 @@ var module;
 
           // Create a "state of loader lifecycle methods at this point" object
           lifecycleApis.forEach(function(key) {
-            var obj = moduleLocalApis[key] ? thisLoader.moduleApi : thisLoader,
+            var obj = thisLoader,
                 fn = obj[key];
 
             oldLoader[key] = function() {
@@ -735,7 +754,7 @@ var module;
           var fns = options.lifecycle(oldLoader);
 
           lifecycleApis.forEach(function(key) {
-            var obj = moduleLocalApis[key] ? thisLoader.moduleApi : thisLoader;
+            var obj = thisLoader;
             var fn = fns[key];
             if (typeof fn === 'function') {
               obj[key] = fn;
@@ -1073,7 +1092,7 @@ waitInterval config
 
       var p = prim.all(args.map(function(name) {
         return callPromiseFnWithListeners(this, 'normalize',
-                                          [name, this._refererName]);
+                           [name, getRefName(this._loader, this._refererName)]);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -1227,14 +1246,15 @@ waitInterval config
 
     module.normalize = function(name) {
       return callSyncFnWithListeners(privateLoader, 'moduleNormalize',
-                                     [name, privateLoader._refererName]);
+             [name, getRefName(privateLoader, privateLoader._refererName)]);
     };
 
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
       return callSyncFnWithListeners(privateLoader, 'moduleLocate', [{
-        name: module.normalize(name, privateLoader._refererName)
+        name: module.normalize(name,
+                          getRefName(privateLoader, privateLoader._refererName))
       }, extension]);
     };
 

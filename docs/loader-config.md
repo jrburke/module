@@ -189,6 +189,18 @@ For the module that resolves to the absolute module ID of 'some/module/id', `mod
 
 ### lifecyle
 
+This allows setting up some overrides for the standard loader lifecycle methods:
+
+* normalize
+* locate
+* fetch
+* translate
+* moduleNormalize
+* moduleLocate
+
+Example that overrides the `normalize` lifecycle method, by calling the previously established `loader.normalize`, but then adding a `/jazzy` to the end of all the module IDs.
+
+```javascript
 module.top.config({
   lifecycle: function(loader) {
     return {
@@ -199,7 +211,25 @@ module.top.config({
       }
     }
   }
-})
+});
+```
+
+Another option is to imperatively override a top loader's lifecycle method directly. However, this requires you to accurately capture the current loader's method state. Using the `lifecycle` config does that work for you:
+
+```javascript
+// Imperative, manual overriding. Do not want blindly call
+// `module.top.normalize` inside this `normalize` method, that
+// would result in an infinite call loop. So need to save old
+// function.
+var oldNormalize = module.top.normalize;
+module.top.normalize = function(name, refererName) {
+  return oldNormalize.call(module.top, name, referName).then(function(value) {
+    return value + '/jazzy';
+  });
+};
+```
+
+The `lifecycle` overrides are called for all lifecycle method calls within that loader and any sub-loaders that have that top loader as a parent.
 
 ## Event listeners (on)
 

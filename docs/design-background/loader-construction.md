@@ -1,6 +1,6 @@
 # Loader construction
 
-How should the internals of the loader be constructed? Some constraints:
+## How should the internals of the loader be constructed? Some constraints:
 
 * Want overriding of loader hooks, like normalize, locate and such, to be done
 after initial creation, and to have that cascade to nested `module` instances.
@@ -12,15 +12,16 @@ after initial creation, and to have that cascade to nested `module` instances.
     * Ideally return synchronously (can throw if answer not known synchronously). They are used to set up pointers for assets via module IDs, or for creating DOM node names or classes. Requiring them to be async really complicates their use.
     * For `locate`, likely will be common that the ID needs to be normalized first.
 
+## Lifecycle overrides, should they be applied to internal, nested module resolution:
 
-todo:
+Should lifecycle normalize occur for an inlined "e" if exportDefine asks for "e"?
 
-* lifecycle test with nested modules, do they get the overrides?
-* Describe how lifecycle events are different from imperative overrides. Hmm, should they be?
+In that case the author of bundle expects that "e" to satisfy. However, the loader lifecycle provider wants to know about all loader lifecycle calls. That provider should win. They are given enough info to know to not change the value, via refererName. It does require in-depth knowledge of nested modules if wanting to not handle them, but that is fine, that is what loader hooks are for, hooks into
+
 * entry objects have a lot of data on them now, restrict for lifecycle calls?
 * bundles config?
 * update loader-config.md to mention current supported syntax.
-
+* plugin support/tests
 
 Old design with stars. Still all covered?
 
