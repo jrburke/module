@@ -191,12 +191,12 @@ For the module that resolves to the absolute module ID of 'some/module/id', `mod
 
 This allows setting up some overrides for the standard loader lifecycle methods:
 
-* normalize
-* locate
-* fetch
-* translate
-* moduleNormalize
-* moduleLocate
+* `normalize` (if implemented, should also implement `moduleNormalize`)
+* `locate` (if implemented, should also implement `moduleLocate`)
+* `fetch`
+* `translate`
+* `moduleNormalize` (if implemented, should also implement` normalize`)
+* `moduleLocate` (if implemented, should also implement `locate`)
 
 Example that overrides the `normalize` lifecycle method, by calling the previously established `loader.normalize`, but then adding a `/jazzy` to the end of all the module IDs.
 

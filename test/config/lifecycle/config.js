@@ -33,23 +33,23 @@ module.config({
   lifecycle: function(loader) {
     return {
       normalize: function(name, refererName) {
-        console.log('NORMALIZE called: ' + name + ', ' + refererName);
+        // console.log('NORMALIZE called: ' + name + ', ' + refererName);
 
         return loader.normalize(name, refererName).then(function(value) {
           var result = applyNormalize(name, refererName, value);
 
-          console.log('NORMALIZE RESULT: ' + result);
+          // console.log('NORMALIZE RESULT: ' + result);
           return result;
         });
       },
 
       locate: function(entry, extension) {
-        console.log('CALLED LOCATE: ' + entry.name);
+        // console.log('CALLED LOCATE: ' + entry.name);
 
         return loader.locate(entry, extension).then(function(value) {
           var result = value.replace(/\.js$/, '.jf');
 
-          console.log('LOCATE RESULT for ' + entry.name + ': ' + result);
+          // console.log('LOCATE RESULT for ' + entry.name + ': ' + result);
           return result;
         });
       },
@@ -57,7 +57,7 @@ module.config({
       fetch: function(entry) {
         var result = sources[entry.address];
 
-        console.log('CALLED FETCH: ' + entry.address + ': ' + result);
+        // console.log('CALLED FETCH: ' + entry.address + ': ' + result);
         return Promise.resolve(result);
       },
 
@@ -71,7 +71,7 @@ module.config({
         var value = loader.moduleNormalize(name, refererName);
         var result = applyNormalize(name, refererName, value);
 
-        console.log('MODULENORMALIZE RESULT: ' + result);
+        // console.log('MODULENORMALIZE RESULT: ' + result);
         return result;
       },
 
