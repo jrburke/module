@@ -93,7 +93,7 @@ fileExtension is optional, and if it is not a string, then it is not appended. T
 
 ### cache expiry
 
-If want to cache bust, override locate: hook, call the main one then append what you want.
+If want to cache bust, use `loader.on('locate', ...` to modify URL and add a cache bust suffix.
 
 ## packages
 
@@ -110,15 +110,12 @@ map config is not used to avoid precedence issues and conflicting with other map
 
 Also a bit wordy to specify map config for pkg and pkg/.
 
-## locate in module code
+## normalize and locate in module bodies
 
-It is useful to call `module.locate('some/thing')` inside a module, to set up a path for instance, like for HTML src or href values. How best to do that?
+It is useful to call `module.normalize('some/thing')` or `module.locate('some/thing', 'css')` inside a module. For instance, to set up a path, like for HTML src or href values. How best to do that, since those loader hooks returns a promise?
 
-Right now, allowing default locate to take a string as first arg that gets auto-upgraded to object inside method. Right now it also can return just a string instead of a promise.
+In addition, the hooks take an `entry` object, where inside the module, just have a string for possibly relative module ID.
 
-But that assumes a loader plugin is not in play. How best to do that? Could limit it to be "will throw if plugin not already loaded", but then need to construct default locate method to not use a promise to call the plugin API if it is loaded.
+**Summary**: New methods on `module` to allow for this inside a module: `module.normalize` and `module.locate` that synchronously return a value, and only take strings as their arguments. If the call involves a loader plugin that has not been loaded, then the method just throws, hopefully indicating that the loader plugin should be specified as a module dependency in order for resolution to work.
 
-Also means overloading the behavior of locate. Does a "locateSync" make sense in that case?
-
-Same thing for `normalize`.
-
+It also leads to `moduleNormalize` and `moduleLocate` loader hooks and loader plugin overrides.

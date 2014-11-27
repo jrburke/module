@@ -38,7 +38,7 @@ This sets the baseUrl for the loader. By default, set the directorty where execu
 
 Sets the URLs/paths to files, as well as specifying if a module ID prefix is a package that contains a "main" module inside of it.
 
-The reasoning behind the choice of format for the locations is explored more in [design-background/locations-config](https://github.com/jrburke/module/blob/master/docs/design-background/loader-config.md).
+The reasoning behind the choice of format for the locations is explored more in [design-background/locations-config](https://github.com/jrburke/module/blob/master/docs/design-background/locations-config.md).
 
 The general format for a "locations" config entry. The < > parts indicate logical names for parts that may show up. Three types of ID-segment specifiers can be used
 

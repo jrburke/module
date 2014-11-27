@@ -18,9 +18,10 @@ Should lifecycle normalize occur for an inlined "e" if exportDefine asks for "e"
 
 In that case the author of bundle expects that "e" to satisfy. However, the loader lifecycle provider wants to know about all loader lifecycle calls. That provider should win. They are given enough info to know to not change the value, via refererName. It does require in-depth knowledge of nested modules if wanting to not handle them, but that is fine, that is what loader hooks are for, hooks into
 
+* Should normalize inside nested modules really go to the top? Seems like the point of the scope thing is to allow local definitions to override. So, look up the nested loader chain for the module. If not found, then go to top logic.
+
 * entry objects have a lot of data on them now, restrict for lifecycle calls?
 * bundles config?
-* update loader-config.md to mention current supported syntax.
 * plugin support/tests
 
 Old design with stars. Still all covered?
