@@ -5852,15 +5852,15 @@ var parse;
     return evt.result;
   }
 
-  function callSyncFnWithListeners(loader, hookName, args) {
-    var value = loader.top[hookName].apply(loader, args);
-    return getValueFromEmit(loader, hookName, value, args);
+  function callSyncFnWithListeners(topLoader, hookName, args) {
+    var value = topLoader[hookName].apply(topLoader, args);
+    return getValueFromEmit(topLoader, hookName, value, args);
   }
 
-  function callPromiseFnWithListeners(loader, hookName, args) {
-    return loader.top[hookName].apply(loader, args)
+  function callPromiseFnWithListeners(topLoader, hookName, args) {
+    return topLoader.top[hookName].apply(topLoader, args)
     .then(function (value) {
-      return getValueFromEmit(loader, hookName, value, args);
+      return getValueFromEmit(topLoader, hookName, value, args);
     });
   }
 
@@ -5879,7 +5879,8 @@ var parse;
 
       var mod = loader._getEntry(normalizedPluginId, true);
       if (mod && mod.moduleNormalize) {
-        normalizedName = mod.moduleNormalize(resourceId, refererName);
+        normalizedName = mod.moduleNormalize(loader.top._dispatcher,
+                                             resourceId, refererName);
       } else {
         normalizedName = simpleNormalize(resourceId, refererName);
       }
@@ -5889,11 +5890,9 @@ var parse;
       return sync ? normalizedName : Promise.resolve(normalizedName);
     } else {
       if (sync) {
-        return callSyncFnWithListeners(loader, 'moduleNormalize',
-                                      [name, refererName]);
+        return loader.top._dispatcher.moduleNormalize(name, refererName);
       } else {
-        return callPromiseFnWithListeners(loader, 'normalize',
-                                          [name, refererName]);
+        return loader.top._dispatcher.normalize(name, refererName);
       }
     }
   }
@@ -5929,10 +5928,10 @@ var parse;
     var normalizedName = entry.name,
         address = entry.address;
 
-    var fetch = callPromiseFnWithListeners(loader, 'fetch', [entry])
+    var fetch = loader.top._dispatcher.fetch(entry)
     .then(function(source) {
       entry.source = source;
-      return callPromiseFnWithListeners(loader, 'translate', [entry]);
+      return loader.top._dispatcher.translate(entry);
     })
     .then(function(source) {
       try {
@@ -5982,7 +5981,7 @@ var parse;
     if (!entry._registered) {
       entry._fetching = true;
 
-      callPromiseFnWithListeners(loader, 'locate', [entry, 'js'])
+      loader.top._dispatcher.locate(entry, 'js')
         .then(function(address) {
           entry.address = address;
 
@@ -6153,7 +6152,8 @@ var parse;
           if (this._hasNormalized(normalizedPluginId)) {
             var mod = this._getModuleNormalized(normalizedPluginId);
             if (mod.moduleNormalize) {
-              result = mod.moduleNormalize(resourceId, refererName);
+              result = mod.moduleNormalize(this.top._dispatcher,
+                                           resourceId, refererName);
             } else {
               return normalizeFavorLocal(this, resourceId, refererName, true);
             }
@@ -6164,7 +6164,8 @@ var parse;
         } else {
           return this.use(normalizedPluginId).then(function(mod) {
             if (mod.normalize) {
-              return mod.normalize(resourceId, refererName)
+              return mod.normalize(this.top._dispatcher,
+                                   resourceId, refererName)
               .then(function(value) {
                 return getValueFromEmit(this, 'normalize',
                                         value, [name, refererName]);
@@ -6244,7 +6245,7 @@ var parse;
           if (this._hasNormalized(pluginId)) {
             var mod = this._getModuleNormalized(pluginId);
             if (mod.moduleLocate) {
-              location = mod.moduleLocate({
+              location = mod.moduleLocate(this.top._dispatcher, {
                 name: resourceId
               }, extension);
             } else {
@@ -6259,7 +6260,8 @@ var parse;
         } else {
           return this.use(pluginId).then(function(mod) {
             if (mod.locate) {
-              return mod.locate({ name: resourceId }, extension)
+              return mod.locate(this.top._dispatcher,
+                                { name: resourceId }, extension)
               .then(function(location) {
                 return getValueFromEmit(this, 'locate', location, locateArgs);
               }.bind(this));
@@ -6316,7 +6318,41 @@ var parse;
     }
 
     // Set up top
-    this.top = this._parent ? this._parent.top : this;
+    if (this._parent) {
+      this.top = this._parent.top;
+    } else {
+      var self = this.top = this;
+
+      // Set up dispatch object for the public loader lifecycle methods. A
+      // separate object is used so that user code can override the public
+      // methods and the dispatch call to these methods still works with the
+      // event emitters, and there is just one standard object that can be
+      // passed to loader plugins. Using an underscore method to ease in
+      // debugging/es5 compatibility, but could be a Symbol to better hide this.
+      this.top._dispatcher = {
+        normalize: function(name, refererName) {
+          return callPromiseFnWithListeners(self, 'normalize',
+                                            [name, refererName]);
+        },
+        moduleNormalize: function(name, refererName) {
+          return callSyncFnWithListeners(self, 'moduleNormalize',
+                                         [name, refererName]);
+        },
+        locate: function(entry, extension) {
+          return callPromiseFnWithListeners(self, 'locate', [entry, extension]);
+        },
+        moduleLocate: function(entry, extension) {
+          return callSyncFnWithListeners(self, 'moduleLocate',
+                                         [entry, extension]);
+        },
+        fetch: function(entry) {
+          return callPromiseFnWithListeners(self, 'fetch', [entry]);
+        },
+        translate: function(entry) {
+          return callPromiseFnWithListeners(self, 'translate', [entry]);
+        }
+      };
+    }
 
     // default export object
     this._export = {};
@@ -6533,7 +6569,7 @@ var parse;
     },
 
     _setWatch: function() {
-      // The choice of this timeout is arbitrary. Do not wan it
+      // The choice of this timeout is arbitrary. Do not want it
       // to fire too frequently given all the async promises,
       // but do not want it to go too long.
       this._watchId = setTimeout(this._watch.bind(this), 25);
@@ -6874,10 +6910,10 @@ waitInterval config
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
-      return callSyncFnWithListeners(privateLoader, 'moduleLocate', [{
+      return privateLoader.top._dispatcher.moduleLocate({
         name: normalizeFavorLocal(privateLoader, name,
                    getRefName(privateLoader, privateLoader._refererName), true)
-      }, extension]);
+      }, extension);
     };
 
     if (!parentPrivateLoader) {
