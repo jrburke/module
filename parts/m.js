@@ -701,12 +701,40 @@ var module;
 
     fetch: function(entry) {
       // entry: name, metadata, address
-      return fetchText(entry.address);
+      var name = entry.name,
+          pluginIndex = name.indexOf('!');
+
+      if (pluginIndex === -1) {
+        return fetchText(entry.address);
+      } else {
+        var normalizedPluginId = name.substring(0, pluginIndex),
+            mod = this._hasNormalized(normalizedPluginId) &&
+                  this._getModuleNormalized(normalizedPluginId);
+        if (mod && mod.fetch) {
+          return mod.fetch(this, entry);
+        } else {
+          return fetchText(entry.address);
+        }
+      }
     },
 
     translate: function(entry) {
       //entry: name, metadata, address, source
-      return Promise.resolve(entry.source);
+      var name = entry.name,
+          pluginIndex = name.indexOf('!');
+
+      if (pluginIndex === -1) {
+        return Promise.resolve(entry.source);
+      } else {
+        var normalizedPluginId = name.substring(0, pluginIndex),
+            mod = this._hasNormalized(normalizedPluginId) &&
+                  this._getModuleNormalized(normalizedPluginId);
+        if (mod && mod.translate) {
+          return mod.translate(this, entry);
+        } else {
+          return Promise.resolve(entry.source);
+        }
+      }
     }
     // END module lifecycle events
   };

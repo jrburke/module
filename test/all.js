@@ -12,3 +12,5 @@ doh.registerUrl('on', '../on/test.html');
 doh.registerUrl('onWithLifecycle', '../on/testWithLifecycle.html');
 
 doh.registerUrl('parse', '../parse/test.html');
+
+doh.registerUrl('pluginsText', '../plugins/text/test.html');

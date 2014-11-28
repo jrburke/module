@@ -59,8 +59,6 @@ module.export = {
     var parts = splitId(entry.name),
         ext = parts[1];
 
-    console.log('PLUGIN LOCALIZE CALLED: ' + parts[0] + ', ' + ext);
-
     // Favor extension on the entry.name vs passed in one, since loader
     // favors 'js' if the name does not have any extension.
     return loader.locate({
