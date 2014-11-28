@@ -11,18 +11,8 @@ var sources = {
   'modules/b.jf' : 'module.export = fn() { return "b"; };',
 };
 
-// Name value pairs of modules to skip extra normalization. Key is refererName,
-// value is array of module IDs to skip. Useful for other tests that use this
-// basic config, but have nested definitions, like testNested.js
-var skipNormalize  = {};
-
 function applyNormalize(name, refererName, value) {
-  var skip = skipNormalize[refererName];
-  if (Array.isArray(skip) && skip.indexOf(name) !== -1) {
-    return value;
-  } else {
-    return 'modules/' + value;
-  }
+  return 'modules/' + value;
 }
 
 function applyLocate(value) {
@@ -33,23 +23,23 @@ module.config({
   lifecycle: function(loader) {
     return {
       normalize: function(name, refererName) {
-        // console.log('NORMALIZE called: ' + name + ', ' + refererName);
+        console.log('NORMALIZE called: ' + name + ', ' + refererName);
 
         return loader.normalize(name, refererName).then(function(value) {
           var result = applyNormalize(name, refererName, value);
 
-          // console.log('NORMALIZE RESULT: ' + result);
+          console.log('NORMALIZE RESULT: ' + result);
           return result;
         });
       },
 
       locate: function(entry, extension) {
-        // console.log('CALLED LOCATE: ' + entry.name);
+        console.log('CALLED LOCATE: ' + entry.name);
 
         return loader.locate(entry, extension).then(function(value) {
           var result = value.replace(/\.js$/, '.jf');
 
-          // console.log('LOCATE RESULT for ' + entry.name + ': ' + result);
+          console.log('LOCATE RESULT for ' + entry.name + ': ' + result);
           return result;
         });
       },
@@ -57,7 +47,7 @@ module.config({
       fetch: function(entry) {
         var result = sources[entry.address];
 
-        // console.log('CALLED FETCH: ' + entry.address + ': ' + result);
+        console.log('CALLED FETCH: ' + entry.address + ': ' + result);
         return Promise.resolve(result);
       },
 
@@ -71,7 +61,7 @@ module.config({
         var value = loader.moduleNormalize(name, refererName);
         var result = applyNormalize(name, refererName, value);
 
-        // console.log('MODULENORMALIZE RESULT: ' + result);
+        console.log('MODULENORMALIZE RESULT: ' + result);
         return result;
       },
 

@@ -129,6 +129,85 @@ var module;
       }
   }
 
+
+  function simpleNormalize(name, refererName, alias) {
+    var i, j, nameSegment, aliasValue, foundAlias, foundI, foundStarAlias,
+        starI,
+        nameParts = name.split('/'),
+        refParts = refererName && refererName.split('/');
+
+    if (nameParts[0].charAt(0) === '.') {
+      if (refererName) {
+        //Convert refererName to array, and lop off the last part,
+        //so that . matches that 'directory' and not name of the
+        // refererName's module. For instance, refererName of
+        // 'one/two/three', maps to 'one/two/three.js', but we want the
+        // directory, 'one/two' for this normalization.
+        nameParts = refParts.slice(0, refParts.length - 1)
+                    .concat(nameParts);
+      } else if (name.indexOf('./') === 0) {
+        // Just trim it off, already at the top of the module ID space.
+        nameParts[0] = nameParts[0].substring(2);
+      } else {
+        throw new Error('Invalid ID, oustide of the module ID space: ' +
+                        name);
+      }
+    }
+
+    trimDots(nameParts);
+
+    //Apply alias config if appropriate.
+    var starAlias = alias && alias['*'];
+
+    if (alias && (refParts || starAlias)) {
+      outerLoop: for (i = nameParts.length; i > 0; i -= 1) {
+        nameSegment = nameParts.slice(0, i).join('/');
+
+        // alias config is keyed off the refereName, so use its parts to
+        // find a refName-specific config.
+        if (refParts) {
+          //Find the longest refName segment match in the config.
+          //So, do joins on the biggest to smallest lengths of refParts.
+          for (j = refParts.length; j > 0; j -= 1) {
+            aliasValue = getOwn(alias, refParts.slice(0, j).join('/'));
+
+            //refName segment has config, find if it has one for
+            //this name.
+            if (aliasValue) {
+              aliasValue = getOwn(aliasValue, nameSegment);
+              if (aliasValue) {
+                //Match, update name to the new value.
+                foundAlias = aliasValue;
+                foundI = i;
+                break outerLoop;
+              }
+            }
+          }
+        }
+
+        //Check for a star map match, but just hold on to it,
+        //if there is a shorter segment match later in a matching
+        //config, then favor over this star map.
+        if (!foundStarAlias && starAlias &&
+            getOwn(starAlias, nameSegment)) {
+          foundStarAlias = getOwn(starAlias, nameSegment);
+          starI = i;
+        }
+      }
+
+      if (!foundAlias && foundStarAlias) {
+        foundAlias = foundStarAlias;
+        foundI = starI;
+      }
+
+      if (foundAlias) {
+        nameParts.splice(0, foundI, foundAlias);
+      }
+    }
+
+    return nameParts.join('/');
+  }
+
   function fetchText(address) {
     return new Promise(function(resolve, reject) {
       var xhr = new XMLHttpRequest();
@@ -195,6 +274,40 @@ var module;
     .then(function (value) {
       return getValueFromEmit(loader, hookName, value, args);
     });
+  }
+
+  /* Favor local module entry for nested modules before delegating to the top
+     loader for normalization. */
+  function normalizeFavorLocal(loader, name, refererName, sync) {
+    var normalizedName,
+        pluginIndex = name.indexOf('!');
+
+    if (pluginIndex === -1) {
+      normalizedName = simpleNormalize(name, refererName);
+    } else {
+      var normalizedPluginId = simpleNormalize(name.substring(0, pluginIndex),
+                                     refererName),
+          resourceId = name.substring(pluginIndex + 1);
+
+      var mod = loader._getEntry(normalizedPluginId, true);
+      if (mod && mod.moduleNormalize) {
+        normalizedName = mod.moduleNormalize(resourceId, refererName);
+      } else {
+        normalizedName = simpleNormalize(resourceId, refererName);
+      }
+    }
+
+    if (loader._getEntry(normalizedName, true)) {
+      return sync ? normalizedName : Promise.resolve(normalizedName);
+    } else {
+      if (sync) {
+        return callSyncFnWithListeners(loader, 'moduleNormalize',
+                                      [name, refererName]);
+      } else {
+        return callPromiseFnWithListeners(loader, 'normalize',
+                                          [name, refererName]);
+      }
+    }
   }
 
   // TODO: probably need to do something different here. For now,
@@ -335,8 +448,8 @@ var module;
 
     // Convert to normalized names
     Promise.all(parseResult.deps.map(function(dep) {
-      return callPromiseFnWithListeners(loader, 'normalize',
-                                  [dep, getRefName(entry._loader, entry.name)]);
+      return normalizeFavorLocal(loader, dep,
+                                 getRefName(entry._loader, entry.name), false);
     }))
     .then(function(normalizedDeps) {
       entry.deps = normalizedDeps;
@@ -431,86 +544,11 @@ var module;
   Loader.prototype = {
     // START module lifecycle events
     _normalize: function(wantSync, name, refererName) {
-      var result, nameSegment, i, j, aliasValue, foundAlias, foundI,
-          foundStarAlias, starI,
+      var result,
           pluginIndex = name.indexOf('!');
 
       if (pluginIndex === -1) {
-
-        var nameParts = name.split('/'),
-            refParts = refererName && refererName.split('/');
-
-        if (nameParts[0].charAt(0) === '.') {
-          if (refererName) {
-            //Convert refererName to array, and lop off the last part,
-            //so that . matches that 'directory' and not name of the
-            // refererName's module. For instance, refererName of
-            // 'one/two/three', maps to 'one/two/three.js', but we want the
-            // directory, 'one/two' for this normalization.
-            nameParts = refParts.slice(0, refParts.length - 1)
-                        .concat(nameParts);
-          } else if (name.indexOf('./') === 0) {
-            // Just trim it off, already at the top of the module ID space.
-            nameParts[0] = nameParts[0].substring(2);
-          } else {
-            throw new Error('Invalid ID, oustide of the module ID space: ' +
-                            name);
-          }
-        }
-
-        trimDots(nameParts);
-
-        //Apply alias config if appropriate.
-        var alias = this.options.alias,
-            starAlias = alias && alias['*'];
-
-        if (alias && (refParts || starAlias)) {
-          outerLoop: for (i = nameParts.length; i > 0; i -= 1) {
-            nameSegment = nameParts.slice(0, i).join('/');
-
-            // alias config is keyed off the refereName, so use its parts to
-            // find a refName-specific config.
-            if (refParts) {
-              //Find the longest refName segment match in the config.
-              //So, do joins on the biggest to smallest lengths of refParts.
-              for (j = refParts.length; j > 0; j -= 1) {
-                aliasValue = getOwn(alias, refParts.slice(0, j).join('/'));
-
-                //refName segment has config, find if it has one for
-                //this name.
-                if (aliasValue) {
-                  aliasValue = getOwn(aliasValue, nameSegment);
-                  if (aliasValue) {
-                    //Match, update name to the new value.
-                    foundAlias = aliasValue;
-                    foundI = i;
-                    break outerLoop;
-                  }
-                }
-              }
-            }
-
-            //Check for a star map match, but just hold on to it,
-            //if there is a shorter segment match later in a matching
-            //config, then favor over this star map.
-            if (!foundStarAlias && starAlias &&
-                getOwn(starAlias, nameSegment)) {
-              foundStarAlias = getOwn(starAlias, nameSegment);
-              starI = i;
-            }
-          }
-
-          if (!foundAlias && foundStarAlias) {
-            foundAlias = foundStarAlias;
-            foundI = starI;
-          }
-
-          if (foundAlias) {
-            nameParts.splice(0, foundI, foundAlias);
-          }
-        }
-
-        name = nameParts.join('/');
+        name = simpleNormalize(name, refererName, this.options.alias);
 
         // If the name points to a package's name, use the package main instead.
         var pkgMain = getOwn(this.options._mainIds,
@@ -521,19 +559,15 @@ var module;
         // Plugin time
         var pluginId = name.substring(0, pluginIndex),
             resourceId = name.substring(pluginIndex + 1),
-            normalizedPluginId = callSyncFnWithListeners(
-                                   this,
-                                   'moduleNormalize',
-                                   [pluginId, refererName]
-                                 );
+            normalizedPluginId = normalizeFavorLocal(this, pluginId,
+                                                     refererName, true);
         if (wantSync) {
           if (this._hasNormalized(normalizedPluginId)) {
             var mod = this._getModuleNormalized(normalizedPluginId);
             if (mod.moduleNormalize) {
               result = mod.moduleNormalize(resourceId, refererName);
             } else {
-              return callSyncFnWithListeners(this, 'moduleNormalize',
-                                            [resourceId, refererName]);
+              return normalizeFavorLocal(this, resourceId, refererName, true);
             }
           } else {
             throw new Error(normalizedPluginId + ' needs to be loaded before ' +
@@ -868,15 +902,15 @@ var module;
     },
 
     // Gets the entry from this or parent instances
-    _getEntry: function(name) {
-      if (hasProp(this._entries, name)) {
+    _getEntry: function(name, skipTopScope) {
+      if (hasProp(this._entries, name) && (!skipTopScope || this._parent)) {
         return this._entries[name];
-      } else if (this._parent) {
+      } else if (this._parent && (!skipTopScope || this._parent._parent)) {
         // Store a local entry for it, now that one module
         // in this instance is bound to it, all should.
         // This also ensures a local _modules entry later
         // for all modules in this loader instance
-        return this._parent._getEntry(name);
+        return this._parent._getEntry(name, skipTopScope);
       }
     },
 
@@ -1091,8 +1125,8 @@ waitInterval config
           uniqueNames = [];
 
       var p = prim.all(args.map(function(name) {
-        return callPromiseFnWithListeners(this, 'normalize',
-                           [name, getRefName(this._loader, this._refererName)]);
+        return normalizeFavorLocal(this, name, 
+                            getRefName(this._loader, this._refererName), false);
       }.bind(this)))
       .then(function(nArgs) {
         normalizedArgs = nArgs;
@@ -1245,16 +1279,16 @@ waitInterval config
     module.Loader = Loader;
 
     module.normalize = function(name) {
-      return callSyncFnWithListeners(privateLoader, 'moduleNormalize',
-             [name, getRefName(privateLoader, privateLoader._refererName)]);
+      return normalizeFavorLocal(privateLoader, name,
+                   getRefName(privateLoader, privateLoader._refererName), true);
     };
 
     module.locate = function(name, extension) {
       // TODO: `metadata` as second arg does not make sense here. Does
       // it make sense anywhere?
       return callSyncFnWithListeners(privateLoader, 'moduleLocate', [{
-        name: module.normalize(name,
-                          getRefName(privateLoader, privateLoader._refererName))
+        name: normalizeFavorLocal(privateLoader, name,
+                   getRefName(privateLoader, privateLoader._refererName), true)
       }, extension]);
     };
 

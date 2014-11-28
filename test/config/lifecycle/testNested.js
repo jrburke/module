@@ -5,8 +5,6 @@ sources['modules/c.jf'] = "module.define('e', fn(module) { module.export = fn() 
                           "};});"
 sources['modules/d.jf'] = 'module.export = fn() { return "d"; };';
 
-skipNormalize['modules/c'] = ['e'];
-
 module.use('a', 'b', 'c', function(a, b, c) {
   doh.register(
     'configLifecycleNested',
