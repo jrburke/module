@@ -6163,6 +6163,7 @@ var parse;
           }
         } else {
           return this.use(normalizedPluginId).then(function(mod) {
+            mod = mod[0];
             if (mod.normalize) {
               return mod.normalize(this.top._dispatcher,
                                    resourceId, refererName)
@@ -6173,7 +6174,7 @@ var parse;
             } else {
               return this.normalize(resourceId, refererName);
             }
-          });
+          }.bind(this));
         }
       }
 
@@ -6259,6 +6260,7 @@ var parse;
           }
         } else {
           return this.use(pluginId).then(function(mod) {
+            mod = mod[0];
             if (mod.locate) {
               return mod.locate(this.top._dispatcher,
                                 { name: resourceId }, extension)
@@ -6270,7 +6272,7 @@ var parse;
                name: resourceId
               }, extension);
             }
-          });
+          }.bind(this));
         }
       }
 
@@ -6791,7 +6793,10 @@ waitInterval config
           finalExports.push(moduleDefArray[defIndex].exportValue);
         });
 
-        callback.apply(null, finalExports);
+        if (callback) {
+          callback.apply(null, finalExports);
+        }
+
         return finalExports;
       }.bind(this));
 
@@ -6888,6 +6893,7 @@ waitInterval config
         return privateLoader[name].apply(privateLoader, arguments);
       };
     });
+    module.id = privateLoader._refererName;
     mix(module, {
       set export (value) {
         return privateLoader.setExport(value);
@@ -6897,6 +6903,10 @@ waitInterval config
       },
       get data () {
         return privateLoader.moduleData();
+      },
+      get address() {
+        // favor already calculated address, otherwise use moduleLocate.
+        throw new Error('Need to implement address');
       }
     }, true);
 

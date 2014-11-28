@@ -6,6 +6,15 @@ function splitId(name) {
   ];
 }
 
+function jsEscape(content) {
+  return content.replace(/(["'\\])/g, '\\$1')
+         .replace(/[\f]/g, '\\f')
+         .replace(/[\b]/g, '\\b')
+         .replace(/[\n]/g, '\\n')
+         .replace(/[\t]/g, '\\t')
+         .replace(/[\r]/g, '\\r');
+}
+
 function fetchText(address) {
   return new Promise(function(resolve, reject) {
     var xhr = new XMLHttpRequest();
@@ -35,25 +44,31 @@ module.export = {
     var parts = splitId(name),
         ext = parts[1];
     return loader.normalize(parts[0], refererName).then(function(value) {
-      return value + (ext ? '.' + ext : '');
+      return module.id + '!' + value + (ext ? '.' + ext : '');
     });
   },
 
   moduleNormalize: function(loader, name, refererName) {
     var parts = splitId(name),
         ext = parts[1];
-    return loader.normalize(parts[0], refererName) + (ext ? '.' + ext : '');
+    return module.id + '!' +
+        loader.moduleNormalize(parts[0], refererName) + (ext ? '.' + ext : '');
   },
 
   locate: function(loader, entry, extension) {
     var parts = splitId(entry.name),
-    ext = parts[1];
+        ext = parts[1];
+
+    console.log('PLUGIN LOCALIZE CALLED: ' + parts[0] + ', ' + ext);
 
     // Favor extension on the entry.name vs passed in one, since loader
     // favors 'js' if the name does not have any extension.
     return loader.locate({
       name: parts[0]
-    }, (ext || extension || ''));
+    }, (ext || extension || '')).then(function(value) {
+      console.log('PLUGIN LOCALIZE GOT VALUE: ' + value);
+      return value;
+    });
   },
 
   moduleLocate: function(loader, name, extension) {
@@ -69,5 +84,10 @@ module.export = {
 
   fetch: function(loader, entry) {
     return fetchText(entry.address);
+  },
+
+  translate: function(loader, entry) {
+    return Promise.resolve('module.export = \'' +
+                           jsEscape(entry.source) + '\';');
   }
 };
