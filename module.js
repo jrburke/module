@@ -5621,10 +5621,6 @@ var parse;
     normalize: true,
     locate: true
   };
-  var moduleLocalApis = {
-    moduleNormalize: true,
-    moduleLocate: true
-  };
 
   // Easy implementation solution for exportDefine for now, but will move
   // to a separate storage area for that factory function later to avoid this.
@@ -5683,6 +5679,14 @@ var parse;
     });
 
     return dest;
+  }
+
+  function splitExtension(name) {
+    var lastIndex = name.lastIndexOf('.');
+    return [
+      name.substring(0, lastIndex),
+      name.substring(lastIndex + 1)
+    ];
   }
 
   /**
@@ -6144,7 +6148,8 @@ var parse;
         result = pkgMain || name;
       } else {
         // Plugin time
-        var pluginId = name.substring(0, pluginIndex),
+        var idParts,
+            pluginId = name.substring(0, pluginIndex),
             resourceId = name.substring(pluginIndex + 1),
             normalizedPluginId = normalizeFavorLocal(this, pluginId,
                                                      refererName, true);
@@ -6154,6 +6159,12 @@ var parse;
             if (mod.moduleNormalize) {
               result = mod.moduleNormalize(this.top._dispatcher,
                                            resourceId, refererName);
+            } else if (mod.detectExtension) {
+              idParts = splitExtension(resourceId);
+              var value = normalizeFavorLocal(this, idParts[0],
+                                              refererName, true);
+              var ext = idParts[1];
+              return normalizedPluginId + '!' + value + (ext ? '.' + ext : '');
             } else {
               return normalizeFavorLocal(this, resourceId, refererName, true);
             }
@@ -6171,6 +6182,14 @@ var parse;
                 return getValueFromEmit(this, 'normalize',
                                         value, [name, refererName]);
               }.bind(this));
+            } else if (mod.detectExtension) {
+              idParts = splitExtension(resourceId);
+              return this.normalize(idParts[0], refererName)
+                      .then(function(value) {
+                        var ext = idParts[1];
+                        return normalizedPluginId + '!' +
+                               value + (ext ? '.' + ext : '');
+                      });
             } else {
               return this.normalize(resourceId, refererName);
             }
@@ -6192,7 +6211,7 @@ var parse;
     _locate: function(wantSync, entry, extension) {
       // entry: name, metadata
       var segment, pluginId, resourceId, name, separatorIndex,
-          location, slashIndex,
+          location, slashIndex, idParts,
           normalizedLocations = this.options._normalizedLocations,
           locateArgs = slice(arguments);
 
@@ -6249,8 +6268,17 @@ var parse;
               location = mod.moduleLocate(this.top._dispatcher, {
                 name: resourceId
               }, extension);
+            } else if (mod.detectExtension) {
+              idParts = splitExtension(resourceId);
+              this.top._dispatcher.moduleLocate({
+                name: idParts[0]
+              }, idParts[1]);
+            } else if (mod.useExtension) {
+              this.top._dispatcher.moduleLocate({
+                name: resourceId
+              }, mod.useExtension);
             } else {
-              return this.moduleApi.localize({
+              return this.top._dispatcher.moduleLocate({
                 name: resourceId
               }, extension);
             }
@@ -6267,9 +6295,18 @@ var parse;
               .then(function(location) {
                 return getValueFromEmit(this, 'locate', location, locateArgs);
               }.bind(this));
+            } else if (mod.detectExtension) {
+              idParts = splitExtension(resourceId);
+              return this.top._dispatcher.locate({
+               name: idParts[0]
+              }, idParts[1]);
+            } else if (mod.useExtension) {
+              return this.top._dispatcher.locate({
+                name: resourceId
+              }, mod.useExtension);
             } else {
-              return this.moduleApi.localize({
-               name: resourceId
+              return this.top._dispatcher.locate({
+                name: resourceId
               }, extension);
             }
           }.bind(this));

@@ -41,7 +41,8 @@ What about allowing for the loader plugin to be dynamically loaded? Let's not ge
 
 ## todos
 
-* module.id instead of module.name since browser wants to claim .name?
+* test for useExtension for plugins.
+* module.id instead of module.name since browser wants to claim .name. Cannot reconfigure a non-configurable property.
 * implement module.address
 * entry objects have a lot of data on them now, restrict for lifecycle calls?
 * bundles config?
