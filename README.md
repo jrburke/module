@@ -1,6 +1,6 @@
 # module
 
-The JavaScript module system of my dreams. Based on building other module systems and supporting multiple kinds of projects and uses of those systems.
+A modern JavaScript module system. Based on building other module systems and supporting multiple kinds of projects and uses of those systems.
 
 * [Story Time](https://github.com/jrburke/module/blob/master/docs/story-time.md) - Start here. Go through the process of building up the API from a smaller starting point.
 * [Cycles](https://github.com/jrburke/module/blob/master/docs/cycles.md) - Deeper dive on cycles, circular dependencies.
